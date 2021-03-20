@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3 -Wall -std=c++11 -rdynamic CMakeFiles/CodeCraft-2021.dir/CodeCraft-2021.cpp.o -o /home/zbs/Huawei_software/SDK_C++/bin/CodeCraft-2021 
