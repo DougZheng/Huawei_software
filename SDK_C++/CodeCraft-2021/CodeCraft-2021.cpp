@@ -32,6 +32,11 @@ struct ServerInfo {
 		cpuCores[nodeId] += cpu;
 		memorySize[nodeId] += memory;
 	}
+
+	int calPriors() const {
+		return serverCost / (cpuCores[0] + cpuCores[1]) + 
+			serverCost / (memorySize[0] + memorySize[1]) + powerCost;
+	}
 };
 
 struct VmInfo {
@@ -264,8 +269,14 @@ void solve(const std::vector<Command> &commands) {
 	for (const auto &command : commands) {
 
 		if (++tim % shuffleFreq == 0) {
-			std::shuffle(serversUsedHasId.begin(), serversUsedHasId.end(), rnd);
-			std::shuffle(serverInfosHasId.begin(), serverInfosHasId.end(), rnd);
+			// std::shuffle(serversUsedHasId.begin(), serversUsedHasId.end(), rnd);
+			// std::shuffle(serverInfosHasId.begin(), serverInfosHasId.end(), rnd);
+			// std::sort(serversUsedHasId.begin(), serversUsedHasId.end(), 
+			// 	[](int x, int y) {
+			// 		int fx = std::min(serversUsed[x].cpuCores[0], serversUsed[x].cpuCores[1]);
+			// 		int fy = std::min(serversUsed[y].cpuCores[0], serversUsed[y].cpuCores[1]);
+			// 		return fx < fy;
+			// 	});
 		}
 
 		if (command.commandType) { // add
@@ -355,6 +366,10 @@ int main() {
 
 	serverInfosHasId.resize(serverInfos.size());
 	std::fill(serverInfosHasId.begin(), serverInfosHasId.end(), 0);
+	std::sort(serverInfosHasId.begin(), serverInfosHasId.end(), 
+		[](int x, int y) {
+			return serverInfos[x].calPriors() < serverInfos[y].calPriors();
+		});
 
 	for (const auto &cmd : commands) {
 		solve(cmd);
