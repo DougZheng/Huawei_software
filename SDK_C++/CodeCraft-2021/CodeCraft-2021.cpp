@@ -34,8 +34,7 @@ struct ServerInfo {
 	}
 
 	int calPriors() const {
-		return serverCost / (cpuCores[0] + cpuCores[1]) + 
-			serverCost / (memorySize[0] + memorySize[1]) + powerCost;
+		return serverCost / (cpuCores[0] + cpuCores[1]); 
 	}
 };
 
@@ -79,7 +78,7 @@ std::vector<int> serverInfosHasId;
 std::vector<int> serversUsedHasId;
 std::mt19937 rnd(time(0));
 int tim;
-int shuffleFreq = 50;
+constexpr int shuffleFreq = 50;
 
 std::istream &operator>>(std::istream &is, ServerInfo &serverInfo) {
 	std::string serverType, cpuCores, memorySize, serverCost, powerCost;
@@ -200,32 +199,6 @@ std::pair<int, int> firstFit1(const std::vector<ServerInfo> &servers,
 	return std::make_pair(-1, -1);
 }
 
-std::pair<int, int> bestFit1(const std::vector<ServerInfo> &servers, 
-	const std::vector<int> &serversHasId, int cpuCores, int memorySize) {
-	auto cal = [](int cpuCores0, int cpuCores1, int cpuCores) {
-		return std::max(cpuCores0, cpuCores1) - cpuCores;
-	};
-	int fmn = INT_MAX;
-	std::pair<int, int> ret(-1, -1);
-	for (int i = 0; i < servers.size(); ++i) {
-		int index = serversHasId[i];
-		const auto &server = servers[index];
-		int fval0 = cal(server.cpuCores[0], server.cpuCores[1], cpuCores);
-		int fval1 = cal(server.cpuCores[0], server.cpuCores[1], cpuCores);
-		if (server.cpuCores[0] >= cpuCores && server.memorySize[0] >= memorySize
-			&& fval0 < fmn) {
-			fmn = fval0;
-			ret = std::make_pair(index, 0);
-		}
-		if (server.cpuCores[1] >= cpuCores && server.memorySize[1] >= memorySize
-			&& fval1 < fmn) {
-			fmn = fval1;
-			ret = std::make_pair(index, 1);
-		}
-	}
-	return ret;
-}
-
 int firstFit2(const std::vector<ServerInfo> &servers, 
 	const std::vector<int> &serversHasId, int cpuCores, int memorySize) {
 	cpuCores /= 2;
@@ -241,18 +214,54 @@ int firstFit2(const std::vector<ServerInfo> &servers,
 	return -1;
 }
 
+
+constexpr double oo = 1e200;
+// constexpr double 
+constexpr double acceptThresh = 1000 * 1.5;
+inline double calF(int serverCpu, int serverMemory, int vmCpu, int vmMemory) {
+	if (serverCpu == 0 || serverMemory == 0) {
+		return oo;
+	}
+	double serverK = static_cast<double>(serverCpu) / serverMemory;
+	double vmK = static_cast<double>(vmCpu) / vmMemory;
+	double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
+	return 1000.0 * static_cast<int>(ratio) + (serverCpu - vmCpu);
+}
+
+std::pair<int, int> bestFit1(const std::vector<ServerInfo> &servers, 
+	const std::vector<int> &serversHasId, int cpuCores, int memorySize) {
+	double fmn = oo;
+	std::pair<int, int> ret(-1, -1);
+	for (int i = 0; i < servers.size(); ++i) {
+		int index = serversHasId[i];
+		const auto &server = servers[index];
+		double fval0 = calF(server.cpuCores[0], server.memorySize[0], cpuCores, memorySize);
+		double fval1 = calF(server.cpuCores[1], server.memorySize[1], cpuCores, memorySize);
+		if (server.cpuCores[0] >= cpuCores && server.memorySize[0] >= memorySize
+			&& fval0 < fmn) {
+			fmn = fval0;
+			ret = std::make_pair(index, 0);
+		}
+		if (server.cpuCores[1] >= cpuCores && server.memorySize[1] >= memorySize
+			&& fval1 < fmn) {
+			fmn = fval1;
+			ret = std::make_pair(index, 1);
+		}
+	}
+	return ret;
+}
+
 int bestFit2(const std::vector<ServerInfo> &servers, 
 	const std::vector<int> &serversHasId, int cpuCores, int memorySize) {
 	cpuCores /= 2;
 	memorySize /= 2;
-	auto cal = [](int cpuCores0, int cpuCores1, int cpuCores) {
-		return std::max(cpuCores0, cpuCores1) - cpuCores;
-	};
-	int fmn = INT_MAX, ret = -1;
+	double fmn = oo, ret = -1;
 	for (int i = 0; i < servers.size(); ++i) {
 		int index = serversHasId[i];
 		const auto &server = servers[index];
-		int fval = cal(server.cpuCores[0], server.cpuCores[1], cpuCores);
+		double fval = calF(std::min(server.cpuCores[0], server.cpuCores[1]), 
+			std::min(server.memorySize[0], server.memorySize[1]), 
+			cpuCores, memorySize);
 		if (server.cpuCores[0] >= cpuCores && server.cpuCores[1] >= cpuCores
 			&& server.memorySize[0] >= memorySize && server.memorySize[1] >= memorySize
 			&& fval < fmn) {
@@ -278,13 +287,17 @@ void solve(const std::vector<Command> &commands) {
 			// 		return fx < fy;
 			// 	});
 		}
+		// if (tim == 2) exit(1);
 
 		if (command.commandType) { // add
 			const VmInfo &vmInfo = vmInfos[command.vmType];
 			if (!vmInfo.isDouble) {
-				auto selId = firstFit1(serversUsed, serversUsedHasId, vmInfo.cpuCores, vmInfo.memorySize);
+				auto selId = bestFit1(serversUsed, serversUsedHasId, vmInfo.cpuCores, vmInfo.memorySize);
 				if (selId.first == -1) {
-					auto buyId = firstFit1(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize);
+					auto buyId = bestFit1(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize);
+					while (buyId.first == -1) {
+						buyId = bestFit1(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize);
+					}
 					assert(buyId.first != -1);
 					selId = std::make_pair(serversUsed.size(), buyId.second);
 					serversUsedHasId.emplace_back(selId.first);
@@ -297,9 +310,12 @@ void solve(const std::vector<Command> &commands) {
 				ansId.emplace_back(selId);
 			}
 			else {
-				auto selId = firstFit2(serversUsed, serversUsedHasId, vmInfo.cpuCores, vmInfo.memorySize);
+				auto selId = bestFit2(serversUsed, serversUsedHasId, vmInfo.cpuCores, vmInfo.memorySize);
 				if (selId == -1) {
-					auto buyId = firstFit2(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize);
+					auto buyId = bestFit2(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize);
+					while (buyId == -1) {
+						buyId = bestFit2(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize);
+					}
 					assert(buyId != -1);
 					selId = serversUsed.size();
 					serversUsedHasId.emplace_back(selId);
@@ -365,7 +381,7 @@ int main() {
 	read();
 
 	serverInfosHasId.resize(serverInfos.size());
-	std::fill(serverInfosHasId.begin(), serverInfosHasId.end(), 0);
+	std::iota(serverInfosHasId.begin(), serverInfosHasId.end(), 0);
 	std::sort(serverInfosHasId.begin(), serverInfosHasId.end(), 
 		[](int x, int y) {
 			return serverInfos[x].calPriors() < serverInfos[y].calPriors();
@@ -375,5 +391,6 @@ int main() {
 		solve(cmd);
 	}
 
+	// std::cout << serversUsed.size() << std::endl;
 	return 0;
 }
