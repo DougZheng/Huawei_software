@@ -9,7 +9,7 @@
 #include <climits>
 #include <cassert>
 
-// #define DEBUG
+#define DEBUG
 
 struct ServerInfo {
 
@@ -216,8 +216,7 @@ int firstFit2(const std::vector<ServerInfo> &servers,
 
 
 constexpr double oo = 1e200;
-// constexpr double 
-constexpr double acceptThresh = 1000 * 1.5;
+constexpr double acceptRange = 1.5;
 inline double calF(int serverCpu, int serverMemory, int vmCpu, int vmMemory) {
 	if (serverCpu == 0 || serverMemory == 0) {
 		return oo;
@@ -225,7 +224,7 @@ inline double calF(int serverCpu, int serverMemory, int vmCpu, int vmMemory) {
 	double serverK = static_cast<double>(serverCpu) / serverMemory;
 	double vmK = static_cast<double>(vmCpu) / vmMemory;
 	double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
-	return 1000.0 * static_cast<int>(ratio) + (serverCpu - vmCpu);
+	return 500.0 * static_cast<int>(ratio / acceptRange) + (serverCpu - vmCpu);
 }
 
 std::pair<int, int> bestFit1(const std::vector<ServerInfo> &servers, 
@@ -247,6 +246,7 @@ std::pair<int, int> bestFit1(const std::vector<ServerInfo> &servers,
 			fmn = fval1;
 			ret = std::make_pair(index, 1);
 		}
+		std::cout << i << " " << index << " " << fval0 << " " << fval1 << std::endl;
 	}
 	return ret;
 }
@@ -287,7 +287,7 @@ void solve(const std::vector<Command> &commands) {
 			// 		return fx < fy;
 			// 	});
 		}
-		// if (tim == 2) exit(1);
+		if (tim == 2) exit(1);
 
 		if (command.commandType) { // add
 			const VmInfo &vmInfo = vmInfos[command.vmType];
@@ -295,9 +295,9 @@ void solve(const std::vector<Command> &commands) {
 				auto selId = bestFit1(serversUsed, serversUsedHasId, vmInfo.cpuCores, vmInfo.memorySize);
 				if (selId.first == -1) {
 					auto buyId = bestFit1(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize);
-					while (buyId.first == -1) {
-						buyId = bestFit1(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize);
-					}
+					// for (double ratio = 1.1; buyId.first == -1; ratio += 0.1) {
+					// 	buyId = bestFit1(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize, ratio);
+					// }
 					assert(buyId.first != -1);
 					selId = std::make_pair(serversUsed.size(), buyId.second);
 					serversUsedHasId.emplace_back(selId.first);
@@ -313,9 +313,9 @@ void solve(const std::vector<Command> &commands) {
 				auto selId = bestFit2(serversUsed, serversUsedHasId, vmInfo.cpuCores, vmInfo.memorySize);
 				if (selId == -1) {
 					auto buyId = bestFit2(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize);
-					while (buyId == -1) {
-						buyId = bestFit2(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize);
-					}
+					// for (double ratio = 1.1; buyId == -1; ratio += 0.1) {
+					// 	buyId = bestFit2(serverInfos, serverInfosHasId, vmInfo.cpuCores, vmInfo.memorySize, ratio);
+					// }
 					assert(buyId != -1);
 					selId = serversUsed.size();
 					serversUsedHasId.emplace_back(selId);
@@ -391,6 +391,8 @@ int main() {
 		solve(cmd);
 	}
 
-	// std::cout << serversUsed.size() << std::endl;
+	#ifdef DEBUG
+	std::cout << serversUsed.size() << std::endl;
+	#endif
 	return 0;
 }
