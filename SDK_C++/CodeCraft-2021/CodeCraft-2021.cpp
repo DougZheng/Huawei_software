@@ -11,7 +11,7 @@
 #include <climits>
 #include <cassert>
 
-// #define DEBUG
+#define DEBUG
 
 struct ServerInfo {
 
@@ -25,18 +25,41 @@ struct ServerInfo {
 	int powerCost;
 	int serverId = -1;
 
+	int cpuUsed = 0;
+	int memoryUsed = 0;
+
 	void install(int nodeId, int cpu, int memory) {
+		if (nodeId == -1) {
+			install(0, cpu / 2, memory / 2);
+			install(1, cpu / 2, memory / 2j);
+		}
 		cpuCores[nodeId] -= cpu;
 		memorySize[nodeId] -= memory;
+
+		cpuUsed += cpu;
+		memoryUsed += memory;
 	}
 
 	void uninstall(int nodeId, int cpu, int memory) {
+		if (nodeId == -1) {
+			uninstall(0, cpu / 2, memory / 2);
+			uninstall(1, cpu / 2, memory / 2);
+		}
 		cpuCores[nodeId] += cpu;
 		memorySize[nodeId] += memory;
+
+		cpuUsed -= cpu;
+		memoryUsed -= memory;
 	}
 
 	int calPriors() const {
 		return serverCost / (cpuCores[0] + cpuCores[1]); 
+	}
+
+	double calUsedRatio() {
+		double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
+		double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
+		return (cpuRatio + memoryRatio) * 0.5;
 	}
 };
 
@@ -78,6 +101,7 @@ std::map<int, std::set<int>> serverIndexToVmId;
 int serversUsedNum;
 int vmResNum;
 
+int canMigrateTotal = 0;
 int migrateTotal = 0;
 
 std::vector<int> serverInfosHasId;
@@ -222,6 +246,7 @@ int firstFit2(const std::vector<ServerInfo> &servers,
 
 
 constexpr double oo = 1e200;
+constexpr double levelCoef = 500.0;
 constexpr double acceptRange = 1.5;
 inline double calF(int serverCpu, int serverMemory, int vmCpu, int vmMemory) {
 	if (serverCpu == 0 || serverMemory == 0) {
@@ -230,7 +255,7 @@ inline double calF(int serverCpu, int serverMemory, int vmCpu, int vmMemory) {
 	double serverK = static_cast<double>(serverCpu) / serverMemory;
 	double vmK = static_cast<double>(vmCpu) / vmMemory;
 	double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
-	return 500.0 * static_cast<int>(ratio / acceptRange) + (serverCpu - vmCpu);
+	return levelCoef * static_cast<int>(ratio / acceptRange) + (serverCpu - vmCpu);
 }
 
 std::pair<int, int> bestFit1(const std::vector<ServerInfo> &servers, 
@@ -253,7 +278,6 @@ std::pair<int, int> bestFit1(const std::vector<ServerInfo> &servers,
 			fmn = fval1;
 			ret = std::make_pair(index, 1);
 		}
-		// std::cout << i << " " << index << " " << fval0 << " " << fval1 << std::endl;
 	}
 	return ret;
 }
@@ -279,6 +303,8 @@ int bestFit2(const std::vector<ServerInfo> &servers,
 	}
 	return ret;
 }
+
+long long totalCost;
 
 void solve(const std::vector<Command> &commands) {
 	std::map<int, int> buyCnt;
@@ -396,6 +422,14 @@ void solve(const std::vector<Command> &commands) {
 
 	std::vector<std::pair<int, int>> migrateIndex;
 	std::vector<int> migrateVmId;
+
+	// std::sort(serversUsedHasId.begin(), serversUsedHasId.end(), 
+	// 	[](int x, int y) {
+	// 		// return serversUsed[x].powerCost > serversUsed[y].powerCost;
+	// 		// return serversUsed[x].cpuUsed > serversUsed[y].cpuUsed;
+	// 		return serversUsed[x].calUsedRatio() > serversUsed[y].calUsedRatio();
+	// 	});
+
 	for (int i = 0; i < serversUsedHasId.size(); ++i) {
 		int index = serversUsedHasId[i];
 		if (serverIndexToVmId[index].size() == 1 && newVmId[index].size() == 0) {
@@ -406,15 +440,6 @@ void solve(const std::vector<Command> &commands) {
 		}
 		mergeVmId(index);
 	}
-
-	// for (int i = 0; i < migrateIndex.size(); ++i) {
-	// 	auto &e = migrateIndex[i];
-	// 	if (serverIndexToVmId[e.second].size() == 1 
-	// 		&& migrateVmId[i] == *serverIndexToVmId[e.second].begin()) {
-	// 		serversUsedHasId[e.first] = -1;
-	// 		readyMigrate.emplace_back(e);
-	// 	}
-	// }
 
 	int migrateCnt = 0;
 	for (const auto &e : migrateIndex) {
@@ -436,7 +461,8 @@ void solve(const std::vector<Command> &commands) {
 			serversReserved[selId.first].install(selId.second, vmInfo.cpuCores, vmInfo.memorySize);
 
 			ansMigrate.push_back({vmId, selId.first, selId.second});
-			serverIndexToVmId[e.second].clear();
+			serverIndexToVmId[insId.first].clear();
+			serverIndexToVmId[selId.first].emplace(vmId);
 
 			++migrateCnt;
 		}
@@ -456,13 +482,16 @@ void solve(const std::vector<Command> &commands) {
 			serversReserved[selId].install(1, vmInfo.cpuCores / 2, vmInfo.memorySize / 2);
 
 			ansMigrate.push_back({vmId, selId});
-			serverIndexToVmId[e.second].clear();
+			assert(e.second == insId.first);
+			serverIndexToVmId[insId.first].clear();
+			serverIndexToVmId[selId].emplace(vmId);
 
 			++migrateCnt;
 		}
 	}
 
 	migrateTotal += migrateCnt;
+	canMigrateTotal += migrateIndex.size();
 
 	for (const auto &e : migrateIndex) {
 		serversUsedHasId[e.first] = e.second;
@@ -471,6 +500,9 @@ void solve(const std::vector<Command> &commands) {
 	std::cout << "(purchase, " << buyCnt.size() << ")" << std::endl;
 	int preCnt = 0;
 	for (auto &it : buyCnt) {
+
+		totalCost += it.second * 1ll * serverInfos[it.first].serverCost;
+
 		std::cout << "(" << serverInfos[it.first].serverType << ", " << it.second << ")" << std::endl;
 		it.second += preCnt;
 		preCnt = it.second;
@@ -503,13 +535,18 @@ void solve(const std::vector<Command> &commands) {
 			std::cout << "(" << serversUsed[id.first].serverId << ")" << std::endl;
 		}
 	}
+
+	for (int i = 0; i < serversUsed.size(); ++i) {
+		if (serverIndexToVmId[i].empty()) continue;
+		totalCost += serversUsed[i].powerCost;
+	}
 }
 
 int main() {
 
 	#ifdef DEBUG
-	std::string inPath = "../../data/training-1.txt";
-	std::string outPath = "../../data/training-1.out";
+	std::string inPath = "../../data/training-2.txt";
+	std::string outPath = "../../data/training-2.out";
 	assert(std::freopen(inPath.c_str(), "r", stdin) != nullptr);
 	assert(std::freopen(outPath.c_str(), "w", stdout) != nullptr);
 	#endif
@@ -530,6 +567,8 @@ int main() {
 	#ifdef DEBUG
 	std::cerr << "server number: " << serversUsed.size() << std::endl;
 	std::cerr << "migration number: " << migrateTotal << std::endl;
+	std::cerr << "can migrate: " << canMigrateTotal << std::endl;
+	std::cerr << "total cost: " << totalCost << std::endl;
 	#endif
 	return 0;
 }
