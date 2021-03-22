@@ -1,0 +1,96 @@
+
+k = 1
+
+../../data/training-1.txt
+cost: 617152365
+migration: 3321
+time cost: 6656.25ms
+
+../../data/training-2.txt
+cost: 526891336
+migration: 22619
+time cost: 10156.2ms
+
+summary:
+total cost: 1144043701
+total migration: 25940
+
+k = 1.05
+
+../../data/training-1.txt
+cost: 622692377
+migration: 337
+time cost: 4468.75ms
+
+../../data/training-2.txt
+cost: 548501095
+migration: 5309
+time cost: 6609.38ms
+
+summary:
+total cost: 1171193472
+total migration: 5646
+
+k = 1.1
+
+../../data/training-1.txt
+cost: 619371265
+migration: 996
+time cost: 5171.88ms
+
+../../data/training-2.txt
+cost: 535285865
+migration: 8314
+time cost: 7984.38ms
+
+summary:
+total cost: 1154657130
+total migration: 9310
+
+k = 1.15
+
+../../data/training-1.txt
+cost: 617765710
+migration: 2122
+time cost: 5937.5ms
+
+../../data/training-2.txt
+cost: 528024652
+migration: 12640
+time cost: 8828.12ms
+
+summary:
+total cost: 1145790362
+total migration: 14762
+
+k = 1.2
+
+../../data/training-1.txt
+cost: 612552053
+migration: 2097
+time cost: 6140.62ms
+
+../../data/training-2.txt
+cost: 523500711
+migration: 12905
+time cost: 9093.75ms
+
+summary:
+total cost: 1136052764
+total migration: 15002
+
+k = 1.25
+
+../../data/training-1.txt
+cost: 612906841
+migration: 2848
+time cost: 6687.5ms
+
+../../data/training-2.txt
+cost: 521658553
+migration: 17294
+time cost: 9968.75ms
+
+summary:
+total cost: 1134565394
+total migration: 20142
