@@ -342,8 +342,8 @@ std::pair<long long, int> judge(std::string inFile, std::string outFile) {
 
 int main() {
 
-    auto ans1 = judge("data/training-1.txt", "data/training-1.out");
-    auto ans2 = judge("data/training-2.txt", "data/training-2.out");
+    auto ans1 = judge("../data/training-1.txt", "../data/training-1.out");
+    auto ans2 = judge("../data/training-2.txt", "../data/training-2.out");
     std::cerr << "\ndataset1:" << std::endl;
     std::cerr << "cost: " << ans1.first << std::endl;
     std::cerr << "migration: " << ans1.second << std::endl;

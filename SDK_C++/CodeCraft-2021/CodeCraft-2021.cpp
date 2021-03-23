@@ -6,6 +6,7 @@
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
+#include <stack>
 #include <ctime>
 #include <random>
 #include <functional>
@@ -247,7 +248,7 @@ class Solution {
 		std::vector<std::pair<int, int>> ansId;
 		std::vector<std::vector<int>> ansMigrate;
 
-		int migrateNum = 5 * vmResNum / 1000;
+		int migrateLim = 5 * vmResNum / 1000;
 
 		std::vector<ServerInfo> serversReserved = serversUsed;
 		decltype(serverIndexToVmId) newVmId;
@@ -304,64 +305,153 @@ class Solution {
 			}
 		}
 
+		struct MigrateRecord {
+			int vmId;
+			std::pair<int, int> fromId, toId;
+		};
+
+		std::stack<MigrateRecord> migrateRecords;
+
+		auto doMigrate = [&](int vmId, std::pair<int, int> fromId, std::pair<int, int> toId) {
+			migrateRecords.push({vmId, fromId, toId});
+			const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+			assert(installId.count(vmId));
+			// assert(serverIndexToVmId[fromId.first].count(vmId));
+			// assert(!serverIndexToVmId[toId.first].count(vmId));
+			installId[vmId] = toId;
+			serversUsed[fromId.first].uninstall(fromId.second, vmInfo.cpuCores, vmInfo.memorySize);
+			serversUsed[toId.first].install(toId.second, vmInfo.cpuCores, vmInfo.memorySize);
+			serversReserved[toId.first].install(toId.second, vmInfo.cpuCores, vmInfo.memorySize);
+			// serverIndexToVmId[fromId.first].erase(vmId);
+			// serverIndexToVmId[toId.first].emplace(vmId);
+		};
+
+		auto undoMigrate = [&]() {
+			auto migrateRecord = migrateRecords.top();
+			migrateRecords.pop();
+			int vmId = migrateRecord.vmId;
+			const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+			auto fromId = migrateRecord.fromId;
+			auto toId = migrateRecord.toId;
+			assert(installId.count(vmId));
+			// assert(!serverIndexToVmId[fromId.first].count(vmId));
+			// assert(serverIndexToVmId[toId.first].count(vmId));
+			installId[vmId] = fromId;
+			serversUsed[fromId.first].install(fromId.second, vmInfo.cpuCores, vmInfo.memorySize);
+			serversUsed[toId.first].uninstall(toId.second, vmInfo.cpuCores, vmInfo.memorySize);
+			serversReserved[toId.first].uninstall(toId.second, vmInfo.cpuCores, vmInfo.memorySize);
+			// serverIndexToVmId[fromId.first].emplace(vmId);
+			// serverIndexToVmId[toId.first].erase(vmId);
+		};
+
+		auto rollbackMigrate = [&](int tim) {
+			while (migrateRecords.size() > tim) {
+				undoMigrate();
+			}
+		};
+
+		std::sort(serversUsedHasId.begin(), serversUsedHasId.end(), 
+			[&](int x, int y) {
+				return newVmId[x].size() != newVmId[y].size() ? newVmId[x].size() < newVmId[y].size()
+					: serverIndexToVmId[x].size() < serverIndexToVmId[y].size();
+			});
+
+		int serverIndexLim = serversUsed.size();
+		for (int i = 0; i < serversUsedHasId.size(); ++i) {
+			int index = serversUsedHasId[i];
+			if (!newVmId[index].empty()) {
+				serverIndexLim = i;
+				break;
+			}
+		}
+	
+		std::vector<std::pair<int, int>> readyMigrate, successMigrate, failMigrate;
+		int migrateStep = migrateLim;
+		while (migrateStep > 0 && migrateLim > 0) {
+			
+			readyMigrate.clear();
+			migrateStep = std::min(migrateStep, migrateLim);
+			int migrateCnt = 0;
+			for (int i = 0; i < serverIndexLim; ++i) {
+				int index = serversUsedHasId[i];
+				if (index == -1) continue;
+				if (migrateCnt + serverIndexToVmId[index].size() > migrateStep) {
+					break;
+				}
+				serversUsedHasId[i] = -1;
+				migrateCnt += serverIndexToVmId[index].size();
+				readyMigrate.emplace_back(i, index);
+			}
+
+			int migrateSuccess = 0;
+			for (const auto &e : readyMigrate) {
+				int tim = migrateRecords.size();
+				migrateSuccess += serverIndexToVmId[e.second].size();
+				bool isSuccess = true;
+				for (const auto &vmId : serverIndexToVmId[e.second]) {
+					// std::cerr << e.first << "  " << e.second << " " << vmId << std::endl;
+					const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+					auto policy = policys[vmInfo.isDouble];
+					auto toId = policy(serversReserved, serversUsedHasId, vmInfo.cpuCores, vmInfo.memorySize);
+					if (toId.first == -1) {
+						rollbackMigrate(tim);
+						failMigrate.emplace_back(e);
+						migrateSuccess -= serverIndexToVmId[e.second].size();
+						isSuccess = false;
+						break;
+					}
+					auto fromId = installId[vmId];
+					doMigrate(vmId, fromId, toId);
+				}
+				if (isSuccess) {
+					successMigrate.emplace_back(e);
+				}
+			}
+
+			for (const auto &e : failMigrate) {
+				serversUsedHasId[e.first] = e.second;
+			}
+			failMigrate.clear();
+
+			migrateLim -= migrateSuccess;
+			totalMigration += migrateSuccess;
+			if (migrateSuccess == 0) {
+				migrateStep /= 2;
+			}
+			
+			while (!migrateRecords.empty()) {
+				auto migrateRecord = migrateRecords.top();
+				migrateRecords.pop();
+				int vmId = migrateRecord.vmId;
+				auto fromId = migrateRecord.fromId;
+				auto toId = migrateRecord.toId;
+				assert(serverIndexToVmId[fromId.first].count(vmId));
+				assert(!serverIndexToVmId[toId.first].count(vmId));
+				serverIndexToVmId[fromId.first].erase(vmId);
+				serverIndexToVmId[toId.first].emplace(vmId);
+				ansMigrate.push_back({vmId, toId.first, toId.second});
+			}
+			// std::cerr << migrateLim << " " << migrateStep << " " << migrateSuccess << std::endl;
+			break;
+		}
+
+		// std::cerr << cnt << std::endl;
+		for (const auto &e : successMigrate) {
+			serversUsedHasId[e.first] = e.second;
+		}
+
+		for (auto &e : serversUsedHasId) {
+			assert(e != -1);
+		}
+
 		auto mergeVmId = [&](int index) {
 			for (const auto &v : newVmId[index]) {
 				serverIndexToVmId[index].emplace(v);
 			}
 			newVmId[index].clear();
 		};
-
-		std::vector<std::pair<int, int>> migrateIndex;
-		std::vector<int> migrateVmId;
-
-		// std::sort(serversUsedHasId.begin(), serversUsedHasId.end(), 
-		// 	[](int x, int y) {
-		// 		// return serversUsed[x].powerCost > serversUsed[y].powerCost;
-		// 		// return serversUsed[x].cpuUsed > serversUsed[y].cpuUsed;
-		// 		return serversUsed[x].calUsedRatio() > serversUsed[y].calUsedRatio();
-		// 	});
-
-		for (int i = 0; i < serversUsedHasId.size(); ++i) {
-			int index = serversUsedHasId[i];
-			if (migrateIndex.size() < migrateNum 
-				&& serverIndexToVmId[index].size() == 1 && newVmId[index].size() == 0) {
-				migrateIndex.emplace_back(i, index);
-				migrateVmId.emplace_back(*serverIndexToVmId[index].begin());
-				serversUsedHasId[i] = -1;
-			}
-			mergeVmId(index);
-		}
-
-		int migrateCnt = 0;
-		for (const auto &e : migrateIndex) {
-
-			int vmId = *serverIndexToVmId[e.second].begin();
-			auto insId = installId[vmId];
-			auto vmInfo = vmInfos[vmIdToIndex[vmId]];
-			auto policy = policys[vmInfo.isDouble];
-
-			auto selId = policy(serversReserved, serversUsedHasId, vmInfo.cpuCores, vmInfo.memorySize);
-			if (selId.first == -1) continue; 
-
-			installId[vmId] = selId;
-
-			serversUsed[insId.first].uninstall(insId.second, vmInfo.cpuCores, vmInfo.memorySize);
-			serversUsed[selId.first].install(selId.second, vmInfo.cpuCores, vmInfo.memorySize);
-
-			serversReserved[selId.first].install(selId.second, vmInfo.cpuCores, vmInfo.memorySize);
-
-			ansMigrate.push_back({vmId, selId.first, selId.second});
-			serverIndexToVmId[insId.first].erase(vmId);
-			serverIndexToVmId[selId.first].emplace(vmId);
-
-			++migrateCnt;
-		}
-
-		totalMigration += migrateCnt;
-		canMigrateTotal += migrateIndex.size();
-
-		for (const auto &e : migrateIndex) {
-			serversUsedHasId[e.first] = e.second;
+		for (int i = 0; i < serversUsed.size(); ++i) {
+			mergeVmId(i);
 		}
 
 		std::cout << "(purchase, " << buyCnt.size() << ")" << std::endl;
@@ -469,8 +559,11 @@ public:
 		// 		return serverInfos[x].calPriors() < serverInfos[y].calPriors();
 		// 	});
 
+		int day = 0;
 		for (const auto &cmds : commands) {
 			solveOneDay(cmds);
+			// std::cerr << "day " << day << std::endl;
+			// if (++day > 10) break;
 		}
 		return std::make_pair(totalCost, totalMigration);
 	}
@@ -513,7 +606,7 @@ std::pair<long long, int> solve(std::string in = "", std::string out = "", doubl
 int main() {
 
 	#ifdef DEBUG
-	for (double k = 1.00; k <= 1.3; k += 0.05) {
+	for (double k = 1.50; k <= 1.51; k += 0.05) {
 		std::cerr << "\nk = " << k << std::endl;
 		auto ans1 = solve("../../data/training-1.txt", "../../data/training-1.out", k);
 		auto ans2 = solve("../../data/training-2.txt", "../../data/training-2.out", k);
