@@ -432,7 +432,7 @@ class Solution {
 				ansMigrate.push_back({vmId, toId.first, toId.second});
 			}
 			// std::cerr << migrateLim << " " << migrateStep << " " << migrateSuccess << std::endl;
-			break;
+			// break;
 		}
 
 		// std::cerr << cnt << std::endl;
@@ -559,7 +559,7 @@ public:
 		// 		return serverInfos[x].calPriors() < serverInfos[y].calPriors();
 		// 	});
 
-		int day = 0;
+		// int day = 0;
 		for (const auto &cmds : commands) {
 			solveOneDay(cmds);
 			// std::cerr << "day " << day << std::endl;
@@ -606,7 +606,7 @@ std::pair<long long, int> solve(std::string in = "", std::string out = "", doubl
 int main() {
 
 	#ifdef DEBUG
-	for (double k = 1.50; k <= 1.51; k += 0.05) {
+	for (double k = 1.30; k <= 1.71; k += 0.05) {
 		std::cerr << "\nk = " << k << std::endl;
 		auto ans1 = solve("../../data/training-1.txt", "../../data/training-1.out", k);
 		auto ans2 = solve("../../data/training-2.txt", "../../data/training-2.out", k);
