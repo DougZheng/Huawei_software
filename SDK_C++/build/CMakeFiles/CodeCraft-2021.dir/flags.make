@@ -6,5 +6,5 @@ CXX_DEFINES =
 
 CXX_INCLUDES = -I/home/zbs/Huawei_software/SDK_C++/CodeCraft-2021/lib
 
-CXX_FLAGS =  -O3 -Wall -std=c++11
+CXX_FLAGS =  -O3 -Wall -std=c++11 -pthread
 

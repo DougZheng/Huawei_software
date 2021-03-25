@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <vector>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <map>
 #include <set>
 #include <unordered_map>
@@ -12,10 +14,16 @@
 #include <functional>
 #include <climits>
 #include <cassert>
+#include <thread>
+#include <future>
 
 #define DEBUG
 
 class Solution {
+
+public:
+
+	using return_type = std::tuple<long long, int, std::string>;
 
 	struct ServerInfo {
 
@@ -85,8 +93,8 @@ class Solution {
 
 		double calUsedRatio() {
 			double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
-			double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
-			return (cpuRatio + memoryRatio) * 0.5;
+			// double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
+			return cpuRatio;
 		}
 	};
 
@@ -150,12 +158,14 @@ class Solution {
 		int vmIndex;
 	};
 
-	std::vector<int> vmIdOrdered;
+private:
+	static std::vector<int> vmIdOrdered;
+	static std::vector<ServerInfo> serverInfos;
+	static std::unordered_map<std::string, int> vmTypeToIndex;
+	static std::vector<VmInfo> vmInfos;
+	static std::vector<std::vector<Command>> commands;
 
-	std::vector<ServerInfo> serverInfos;
-	std::unordered_map<std::string, int> vmTypeToIndex;
-	std::vector<VmInfo> vmInfos;
-	std::vector<std::vector<Command>> commands;
+	std::string outputBuffer;
 
 	std::vector<int> serverInfosHasId;
 	std::vector<int> serversUsedHasId;
@@ -177,15 +187,6 @@ class Solution {
 	const double oo = 1e200;
 	double levelCoef = 500.0;
 	double acceptRange = 1.5;
-
-	std::function<std::pair<int, int>
-		(const std::vector<ServerInfo>&, const std::vector<int>&, int, int)> policys[2] = 
-	{
-		std::bind(&Solution::bestFit1, this, std::placeholders::_1, 
-			std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), 
-		std::bind(&Solution::bestFit2, this, std::placeholders::_1, 
-			std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)
-	};
 
 
 	inline double calF(int serverCpu, int serverMemory, int vmCpu, int vmMemory) {
@@ -247,6 +248,15 @@ class Solution {
 
 	void solveOneDay(const std::vector<Command> &commands) {
 
+		std::function<std::pair<int, int>
+			(const std::vector<ServerInfo>&, const std::vector<int>&, int, int)> policys[2] = 
+		{
+			std::bind(&Solution::bestFit1, this, std::placeholders::_1, 
+				std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), 
+			std::bind(&Solution::bestFit2, this, std::placeholders::_1, 
+				std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)
+		};
+
 		std::map<int, int> buyCnt;
 		std::vector<std::pair<int, int>> ansId;
 		std::vector<std::vector<int>> ansMigrate;
@@ -255,6 +265,15 @@ class Solution {
 
 		std::vector<ServerInfo> serversReserved = serversUsed;
 		decltype(serverIndexToVmId) newVmId(serverIndexToVmId.size());
+
+		// auto setMax = [](ServerInfo &server1, const ServerInfo &server2) {
+		// 	server1.cpuCores[0] = std::min(server1.cpuCores[0], server2.cpuCores[0]);
+		// 	server1.cpuCores[1] = std::min(server1.cpuCores[1], server2.cpuCores[1]);
+		// 	server1.memorySize[0] = std::min(server1.memorySize[0], server2.memorySize[0]);
+		// 	server1.memorySize[1] = std::min(server1.memorySize[1], server2.memorySize[1]);
+		// 	// server1.cpuUsed = std::max(server1.cpuUsed, server2.cpuUsed);
+		// 	// server1.memoryUsed = std::max(server1.memoryUsed, server2.memoryUsed);
+		// };
 
 		for (const auto &command : commands) {
 
@@ -288,6 +307,7 @@ class Solution {
 				installId[command.vmId] = selId;
 				ansId.emplace_back(selId);
 
+				// setMax(serversReserved[selId.first], serversUsed[selId.first]);
 				serversReserved[selId.first].install(selId.second, vmInfo.cpuCores, vmInfo.memorySize);
 
 				assert(selId.first < newVmId.size());
@@ -359,7 +379,8 @@ class Solution {
 		std::sort(serversUsedHasId.begin(), serversUsedHasId.end(), 
 			[&](int x, int y) {
 				return newVmId[x].empty() != newVmId[y].empty() ? newVmId[x].empty() > newVmId[y].empty()
-					: serverIndexToVmId[x].size() < serverIndexToVmId[y].size();
+					// : serverIndexToVmId[x].size() < serverIndexToVmId[y].size();
+					: serversUsed[x].calUsedRatio() < serversUsed[y].calUsedRatio();
 			});
 
 		int serverIndexLim = serversUsed.size();
@@ -372,15 +393,21 @@ class Solution {
 		}
 	
 		std::vector<std::pair<int, int>> readyMigrate, successMigrate, failMigrate;
+		std::map<int, int> failMigrateCnt;
 		int migrateStep = migrateLim;
+		int migrateRound = 0;
 		while (migrateStep > 0 && migrateLim > 0) {
 			
+			if (!migrateRound) {
+				failMigrateCnt.clear();
+			}
 			readyMigrate.clear();
 			migrateStep = std::min(migrateStep, migrateLim);
 			int migrateCnt = 0;
 			for (int i = 0; i < serverIndexLim; ++i) {
 				int index = serversUsedHasId[i];
 				if (index == -1) continue;
+				if (migrateRound && failMigrateCnt.count(index)) continue;
 				if (migrateCnt + serverIndexToVmId[index].size() > migrateStep) {
 					break;
 				}
@@ -403,6 +430,7 @@ class Solution {
 						failMigrate.emplace_back(e);
 						migrateSuccess -= serverIndexToVmId[e.second].size();
 						isSuccess = false;
+						++failMigrateCnt[e.second];
 						break;
 					}
 					auto fromId = installId[vmId];
@@ -435,8 +463,8 @@ class Solution {
 				serverIndexToVmId[toId.first].emplace_back(vmId);
 				ansMigrate.push_back({vmIdOrdered[vmId], toId.first, toId.second});
 			}
-			// std::cerr << migrateLim << " " << migrateStep << " " << migrateSuccess << std::endl;
 			// break;
+			migrateRound ^= 1;
 		}
 
 		for (const auto &e : successMigrate) {
@@ -457,13 +485,21 @@ class Solution {
 			mergeVmId(i);
 		}
 
-		std::cout << "(purchase, " << buyCnt.size() << ")" << std::endl;
+		for (const auto &it : buyCnt) {
+			totalCost += it.second * 1ll * serverInfos[it.first].serverCost;
+		}
+
+		for (int i = 0; i < serversUsed.size(); ++i) {
+			if (serverIndexToVmId[i].empty()) continue;
+			totalCost += serversUsed[i].powerCost;
+		}
+
+		outputBuffer += "(purchase, " + std::to_string(buyCnt.size()) + ")\n";
+		// std::cout << "(purchase, " << buyCnt.size() << ")" << std::endl;
 		int preCnt = 0;
 		for (auto &it : buyCnt) {
-
-			totalCost += it.second * 1ll * serverInfos[it.first].serverCost;
-
-			std::cout << "(" << serverInfos[it.first].serverType << ", " << it.second << ")" << std::endl;
+			// std::cout << "(" << serverInfos[it.first].serverType << ", " << it.second << ")" << std::endl;
+			outputBuffer += "(" + serverInfos[it.first].serverType + ", " + std::to_string(it.second) + ")\n";
 			it.second += preCnt;
 			preCnt = it.second;
 		}
@@ -475,36 +511,51 @@ class Solution {
 		}
 		serversUsedNum = serversUsed.size();
 
-		std::cout << "(migration, " << ansMigrate.size() << ")" << std::endl;
+		// std::cout << "(migration, " << ansMigrate.size() << ")" << std::endl;
+		outputBuffer += "(migration, " + std::to_string(ansMigrate.size()) + ")\n";
 		for (const auto &vc : ansMigrate) {
 			if (vc.back() == -1) {
-				std::cout << "(" << vc[0] << ", " << serversUsed[vc[1]].serverId << ")" << std::endl;
+				// std::cout << "(" << vc[0] << ", " << serversUsed[vc[1]].serverId << ")" << std::endl;
+				outputBuffer += "(" + std::to_string(vc[0]) + ", " + std::to_string(serversUsed[vc[1]].serverId) + ")\n";
 			}
 			else {
-				std::cout << "(" << vc[0] << ", " << serversUsed[vc[1]].serverId << 
-					", " << (vc[2] ? "B" : "A") << ")" << std::endl;
+				// std::cout << "(" << vc[0] << ", " << serversUsed[vc[1]].serverId << 
+				// 	", " << (vc[2] ? "B" : "A") << ")" << std::endl;
+				outputBuffer += "(" + std::to_string(vc[0]) + ", " + std::to_string(serversUsed[vc[1]].serverId) 
+					+ ", " + (vc[2] ? "B" : "A") + ")\n";
 			}
 		}
 
 		for (const auto &id : ansId) {
 			if (id.second != -1) {
-				std::cout << "(" << serversUsed[id.first].serverId 
-					<< ", " << (id.second ? "B" : "A") << ")" << std::endl;
+				// std::cout << "(" << serversUsed[id.first].serverId 
+				// 	<< ", " << (id.second ? "B" : "A") << ")" << std::endl;
+				outputBuffer += "(" + std::to_string(serversUsed[id.first].serverId) 
+					+ ", " + (id.second ? "B" : "A") + ")\n";
 			}
 			else {
-				std::cout << "(" << serversUsed[id.first].serverId << ")" << std::endl;
+				// std::cout << "(" << serversUsed[id.first].serverId << ")" << std::endl;
+				outputBuffer += "(" + std::to_string(serversUsed[id.first].serverId) + ")\n";
 			}
 		}
 
-		for (int i = 0; i < serversUsed.size(); ++i) {
-			if (serverIndexToVmId[i].empty()) continue;
-			totalCost += serversUsed[i].powerCost;
-		}
 	}
 
 public:
 
-	void read() {
+	void write() {
+
+		std::cout << outputBuffer;
+		std::cout.flush();
+	}
+
+	static void read() {
+
+		serverInfos.clear();
+		vmInfos.clear();
+		vmTypeToIndex.clear();
+		commands.clear();
+		vmIdOrdered.clear();
 
 		int serverNum;
 		std::cin >> serverNum;
@@ -553,7 +604,9 @@ public:
 		}
 	}
 
-	std::pair<long long, int> solve() {
+	void solve(std::promise<return_type> &promiseAns) {
+
+		outputBuffer.clear();
 
 		serverInfosHasId.clear();
 		serversUsedHasId.clear();
@@ -578,10 +631,28 @@ public:
 		// 		return serverInfos[x].calPriors() < serverInfos[y].calPriors();
 		// 	});
 
-		for (const auto &cmds : commands) {
-			solveOneDay(cmds);
+		int day = 0;
+		for (int i = 0; i < commands.size(); ++i) {
+			// if (day++ % 300 == 0) {
+			// 	Solution solution1 = *this;
+			// 	Solution solution2 = *this;
+			// 	solution1.setAcceptRange(1.4);
+			// 	solution2.setAcceptRange(1.5);
+			// 	for (int j = i; j < std::min(i + 300, (int)commands.size()); ++j) {
+			// 		solution1.solveOneDay(commands[j], false);
+			// 		solution2.solveOneDay(commands[j], false);
+			// 	}
+			// 	std::cerr << solution1.totalCost << " ?? " << solution2.totalCost << std::endl;
+			// 	if (solution1.totalCost < solution2.totalCost) {
+			// 		this->setAcceptRange(1.4);
+			// 	}
+			// 	else {
+			// 		this->setAcceptRange(1.5);
+			// 	}
+			// }
+			solveOneDay(commands[i]);
 		}
-		return std::make_pair(totalCost, totalMigration);
+		promiseAns.set_value(std::make_tuple(totalCost, totalMigration, outputBuffer));
 	}
 
 	void setAcceptRange(double acceptRange) {
@@ -589,54 +660,84 @@ public:
 	}
 };
 
-std::pair<long long, int> solve(std::string in = "", std::string out = "", double acceptRange = 1.5) {
+std::vector<int> Solution::vmIdOrdered;
+std::vector<Solution::ServerInfo> Solution::serverInfos;
+std::unordered_map<std::string, int> Solution::vmTypeToIndex;
+std::vector<Solution::VmInfo> Solution::vmInfos;
+std::vector<std::vector<Solution::Command>> Solution::commands;
 
-	clock_t timS = clock();
-	
-	assert(std::freopen(in.c_str(), "r", stdin) != nullptr);
-	assert(std::freopen(out.c_str(), "w", stdout) != nullptr);
-
-	Solution solution;
-	solution.read();
-	
-	solution.setAcceptRange(acceptRange);
-
-	auto ans = solution.solve();
-	clock_t timT = clock();
+std::pair<long long, int> solveMultithread(std::string in = "", std::string out = "") {
 
 	auto calTim = [](clock_t timS, clock_t timT) -> double {
 		return static_cast<double>(timT - timS) / CLOCKS_PER_SEC * 1000;
 	};
 
+	clock_t timS = std::clock();
+
 	std::cerr << "\n" << in << std::endl;
-	std::cerr << "cost: " << ans.first << std::endl;
-	std::cerr << "migration: " << ans.second << std::endl;
-	std::cerr << "time cost: " << calTim(timS, timT) << "ms" << std::endl;
 
-
+	assert(std::freopen(in.c_str(), "r", stdin) != nullptr);
+	Solution::read();
 	std::fclose(stdin);
+
+	std::vector<double> acceptRanges{1.25, 1.30, 1.35, 1.40, 1.45, 1.50, 1.55, 1.60};
+
+	int n = acceptRanges.size();
+	std::vector<std::promise<Solution::return_type>> promises;
+	std::vector<std::future<Solution::return_type>> futures;
+	std::vector<std::thread> threads;
+	std::vector<Solution> solutions;
+	std::vector<Solution::return_type> ans;
+
+	promises.resize(n);
+	solutions.resize(n);
+	for (int i = 0; i < n; ++i) {
+		futures.emplace_back(promises[i].get_future());
+		solutions[i].setAcceptRange(acceptRanges[i]);
+		threads.emplace_back(std::thread(&Solution::solve, solutions[i], std::ref(promises[i])));
+	}
+
+	auto display = [&](int index) {
+		std::cerr << "\nacceptRange: " << acceptRanges[index] << std::endl;
+		std::cerr << "cost: " << std::get<0>(ans[index]) << std::endl;
+		std::cerr << "migration: " << std::get<1>(ans[index]) << std::endl;
+	};
+	for (int i = 0; i < n; ++i) {
+		ans.emplace_back(futures[i].get());
+		threads[i].join();
+		display(i);
+	}
+
+	clock_t timT = std::clock();
+
+	std::cerr << "\ntime cost: " << calTim(timS, timT) << "ms" << std::endl;
+
+	int mnId = std::min_element(ans.cbegin(), ans.cend()) - ans.cbegin();
+	std::cerr << "\noptimal: ";
+	display(mnId);
+
+	assert(std::freopen(out.c_str(), "w", stdout) != nullptr);
+	std::cout << std::get<2>(ans[mnId]) << std::endl;
 	std::fclose(stdout);
 
-	return ans;
+	return std::make_pair(std::get<0>(ans[mnId]), std::get<1>(ans[mnId]));
 }
 
 int main() {
 
 	#ifdef DEBUG
-	for (double k = 1.50; k <= 1.51; k += 0.05) {
-		std::cerr << "\nk = " << k << std::endl;
-		auto ans1 = solve("../../data/training-1.txt", "../../data/training-1.out", k);
-		auto ans2 = solve("../../data/training-2.txt", "../../data/training-2.out", k);
-		std::cerr << "\n" << "summary:" << std::endl;
-		std::cerr << "total cost: " << ans1.first + ans2.first << std::endl;
-		std::cerr << "total migration: " << ans1.second + ans2.second << std::endl;
-	}
+	auto ans1 = solveMultithread("../../data/training-1.txt", "../../data/training-1.out");
+	auto ans2 = solveMultithread("../../data/training-2.txt", "../../data/training-2.out");
+	std::cerr << "\n" << "summary:" << std::endl;
+	std::cerr << "total cost: " << ans1.first + ans2.first << std::endl;
+	std::cerr << "total migration: " << ans1.second + ans2.second << std::endl;
 	#endif
 
 	#ifndef DEBUG
+	Solution::read();
 	Solution solution;
-	solution.read();
 	solution.solve();
+	solution.write();
 	#endif
 
 	return 0;

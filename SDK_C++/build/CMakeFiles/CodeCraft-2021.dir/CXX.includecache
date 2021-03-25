@@ -15,6 +15,10 @@ vector
 -
 string
 -
+tuple
+-
+utility
+-
 map
 -
 set
@@ -34,5 +38,9 @@ functional
 climits
 -
 cassert
+-
+thread
+-
+future
 -
 
