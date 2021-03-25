@@ -93,8 +93,8 @@ public:
 
 		double calUsedRatio() {
 			double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
-			// double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
-			return cpuRatio;
+			double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
+			return cpuRatio * 100;
 		}
 	};
 
@@ -203,7 +203,7 @@ private:
 		const std::vector<int> &serversHasId, int cpuCores, int memorySize) {
 		double fmn = oo;
 		std::pair<int, int> ret(-1, -1);
-		for (int i = 0; i < servers.size(); ++i) {
+		for (size_t i = 0; i < servers.size(); ++i) {
 			int index = serversHasId[i];
 			if (index == -1) continue;
 			const auto &server = servers[index];
@@ -229,7 +229,7 @@ private:
 		memorySize /= 2;
 		double fmn = oo;
 		std::pair<int, int> ret(-1, -1);
-		for (int i = 0; i < servers.size(); ++i) {
+		for (size_t i = 0; i < servers.size(); ++i) {
 			int index = serversHasId[i];
 			if (index == -1) continue;
 			const auto &server = servers[index];
@@ -271,8 +271,8 @@ private:
 		// 	server1.cpuCores[1] = std::min(server1.cpuCores[1], server2.cpuCores[1]);
 		// 	server1.memorySize[0] = std::min(server1.memorySize[0], server2.memorySize[0]);
 		// 	server1.memorySize[1] = std::min(server1.memorySize[1], server2.memorySize[1]);
-		// 	// server1.cpuUsed = std::max(server1.cpuUsed, server2.cpuUsed);
-		// 	// server1.memoryUsed = std::max(server1.memoryUsed, server2.memoryUsed);
+		// 	server1.cpuUsed = std::max(server1.cpuUsed, server2.cpuUsed);
+		// 	server1.memoryUsed = std::max(server1.memoryUsed, server2.memoryUsed);
 		// };
 
 		for (const auto &command : commands) {
@@ -377,7 +377,7 @@ private:
 		};
 
 		std::sort(serversUsedHasId.begin(), serversUsedHasId.end(), 
-			[&](int x, int y) {
+			[&](int x, int y) -> bool {
 				return newVmId[x].empty() != newVmId[y].empty() ? newVmId[x].empty() > newVmId[y].empty()
 					// : serverIndexToVmId[x].size() < serverIndexToVmId[y].size();
 					: serversUsed[x].calUsedRatio() < serversUsed[y].calUsedRatio();
@@ -393,7 +393,7 @@ private:
 		}
 	
 		std::vector<std::pair<int, int>> readyMigrate, successMigrate, failMigrate;
-		std::map<int, int> failMigrateCnt;
+		std::set<int> failMigrateCnt;
 		int migrateStep = migrateLim;
 		int migrateRound = 0;
 		while (migrateStep > 0 && migrateLim > 0) {
@@ -430,7 +430,7 @@ private:
 						failMigrate.emplace_back(e);
 						migrateSuccess -= serverIndexToVmId[e.second].size();
 						isSuccess = false;
-						++failMigrateCnt[e.second];
+						failMigrateCnt.emplace(e.second);
 						break;
 					}
 					auto fromId = installId[vmId];
@@ -735,9 +735,31 @@ int main() {
 
 	#ifndef DEBUG
 	Solution::read();
-	Solution solution;
-	solution.solve();
-	solution.write();
+
+	std::vector<double> acceptRanges{1.35, 1.40, 1.45, 1.50};
+
+	int n = acceptRanges.size();
+	std::vector<std::promise<Solution::return_type>> promises;
+	std::vector<std::future<Solution::return_type>> futures;
+	std::vector<std::thread> threads;
+	std::vector<Solution> solutions;
+	std::vector<Solution::return_type> ans;
+
+	promises.resize(n);
+	solutions.resize(n);
+	for (int i = 0; i < n; ++i) {
+		futures.emplace_back(promises[i].get_future());
+		solutions[i].setAcceptRange(acceptRanges[i]);
+		threads.emplace_back(std::thread(&Solution::solve, solutions[i], std::ref(promises[i])));
+	}
+
+	for (int i = 0; i < n; ++i) {
+		ans.emplace_back(futures[i].get());
+		threads[i].join();
+	}
+
+	int mnId = std::min_element(ans.cbegin(), ans.cend()) - ans.cbegin();
+	std::cout << std::get<2>(ans[mnId]) << std::endl;
 	#endif
 
 	return 0;
