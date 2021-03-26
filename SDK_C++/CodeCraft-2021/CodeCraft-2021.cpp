@@ -206,7 +206,7 @@ private:
 	const int shuffleFreq = 50;
 
 	const double oo = 1e200;
-	double levelCoef = 500.0;
+	double levelCoef = 300.0;
 	double acceptRange = 1.5;
 
 
@@ -217,7 +217,8 @@ private:
 		double serverK = static_cast<double>(serverCpu) / serverMemory;
 		double vmK = static_cast<double>(vmCpu) / vmMemory;
 		double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
-		return levelCoef * static_cast<int>(ratio / acceptRange) + vmK * (serverCpu - vmCpu) + 1.0 / vmK * (serverMemory - vmMemory);
+		return levelCoef * static_cast<int>(ratio / acceptRange)
+			+ serverK * (serverCpu - vmCpu) + 1.0 / serverK * (serverMemory - vmMemory);
 	}
 
 	std::pair<int, int> bestFit1(const std::vector<ServerInfo> &servers, 
@@ -816,7 +817,7 @@ int main() {
 	#ifndef DEBUG
 	Solution::read();
 
-	std::vector<double> acceptRanges{1.20, 1.30};
+	std::vector<double> acceptRanges{1.20, 1.40};
 
 	int n = acceptRanges.size();
 	std::vector<std::promise<Solution::return_type>> promises;
