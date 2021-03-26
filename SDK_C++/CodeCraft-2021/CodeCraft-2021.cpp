@@ -95,12 +95,14 @@ public:
 		}
 
 		double calUsedRatio() {
-			double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
-			double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
+			// double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
+			// double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
 			// return cpuRatio;
-			return 1.0 * cpuUsed / cpuTotal;
-			// return cpuUsed;
-			// return 1.0 * cpuUsed / cpuTotal;
+			double cpuRatio = static_cast<double>(cpuUsed) / cpuTotal;
+			double memoryRatio = static_cast<double>(memoryUsed) / memoryTotal;
+			// return cpuRatio * 0.8 + memoryRatio * 0.2;
+			double k = cpuRatio / (memoryRatio + 0.05);
+			return k > 1 ? -k : -1 / k;
 		}
 	};
 
@@ -801,7 +803,7 @@ int main() {
 	#ifndef DEBUG
 	Solution::read();
 
-	std::vector<double> acceptRanges{1.30, 1.35, 1.40, 1.45};
+	std::vector<double> acceptRanges{1.25, 1.30, 1.35, 1.40};
 
 	int n = acceptRanges.size();
 	std::vector<std::promise<Solution::return_type>> promises;
