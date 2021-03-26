@@ -17,7 +17,7 @@
 #include <thread>
 #include <future>
 
-#define DEBUG
+// #define DEBUG
 
 class Solution {
 
@@ -97,7 +97,9 @@ public:
 		double calUsedRatio() {
 			double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
 			double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
-			return cpuRatio;
+			// return cpuRatio;
+			return 1.0 * cpuUsed / cpuTotal;
+			// return cpuUsed;
 			// return 1.0 * cpuUsed / cpuTotal;
 		}
 	};
@@ -386,14 +388,35 @@ private:
 		};
 
 		
-		// std::sort(serversUsedHasId[0].begin(), serversUsedHasId[0].end(), 
-		// 	[&](int x, int y) -> bool {
-		// 		return newVmId[x].empty() != newVmId[y].empty() ? newVmId[x].empty() > newVmId[y].empty()
-		// 			// : serverIndexToVmId[x].size() < serverIndexToVmId[y].size();
-		// 			: serversUsed[x][0].calUsedRatio() < serversUsed[0][y].calUsedRatio();
-		// 	});
+		std::sort(serversUsedHasId[0].begin(), serversUsedHasId[0].end(), 
+			[&](int x, int y) -> bool {
+				return newVmId[0][x].empty() != newVmId[0][y].empty() ? newVmId[0][x].empty() > newVmId[0][y].empty()
+					// : serverIndexToVmId[0][x].size() < serverIndexToVmId[0][y].size();
+					: serversUsed[0][x].calUsedRatio() < serversUsed[0][y].calUsedRatio();
+			});
 
-		// int serverIndexLim = serversUsed.size();
+		std::sort(serversUsedHasId[1].begin(), serversUsedHasId[1].end(), 
+			[&](int x, int y) -> bool {
+				return newVmId[1][x].empty() != newVmId[1][y].empty() ? newVmId[1][x].empty() > newVmId[1][y].empty()
+					// : serverIndexToVmId[1][x].size() < serverIndexToVmId[1][y].size();
+					: serversUsed[1][x].calUsedRatio() < serversUsed[1][y].calUsedRatio();
+			});
+
+		int serverIndexLim[2] = {serversUsed[0].size(), serversUsed[1].size()};
+		for (int i = 0; i < 2; ++i) {
+			for (int j = 0; j < serversUsedHasId[i].size(); ++j) {
+				int index = serversUsedHasId[i][j];
+				if (!newVmId[i][index].empty()) {
+					serverIndexLim[i] = j;
+					break;
+				}
+			}
+		}
+
+		// for (int i = 0; i < serversUsed[1].size(); ++i) {
+		// 	assert(serversUsed[1][i].cpuCores[0] == serversUsed[1][i].cpuCores[1]);
+		// }
+
 		// for (int i = 0; i < serversUsedHasId.size(); ++i) {
 		// 	int index = serversUsedHasId[i];
 		// 	if (!newVmId[index].empty()) {
@@ -401,89 +424,95 @@ private:
 		// 		break;
 		// 	}
 		// }
+
+		for (int isDouble = 0; isDouble < 2; ++isDouble) {
+
+			std::vector<std::pair<int, int>> readyMigrate, successMigrate, failMigrate;
+			std::set<int> failMigrateCnt;
+			int migrateStep = migrateLim;
+			int migrateRound = 0;
+			while (migrateStep > 0 && migrateLim > 0) {
+				
+				if (!migrateRound) {
+					failMigrateCnt.clear();
+				}
+				readyMigrate.clear();
+				migrateStep = std::min(migrateStep, migrateLim);
+				int migrateCnt = 0;
+				for (int i = 0; i < serverIndexLim[isDouble]; ++i) {
+					int index = serversUsedHasId[isDouble][i];
+					if (index == -1) continue;
+					if (migrateRound && failMigrateCnt.count(index)) continue;
+					if (migrateCnt + serverIndexToVmId[isDouble][index].size() > migrateStep) {
+						break;
+					}
+					serversUsedHasId[isDouble][i] = -1;
+					migrateCnt += serverIndexToVmId[isDouble][index].size();
+					readyMigrate.emplace_back(i, index);
+				}
+
+				int migrateSuccess = 0;
+				for (const auto &e : readyMigrate) {
+					int tim = migrateRecords.size();
+					migrateSuccess += serverIndexToVmId[isDouble][e.second].size();
+					bool isSuccess = true;
+					for (const auto &vmId : serverIndexToVmId[isDouble][e.second]) {
+						const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+						auto policy = policys[vmInfo.isDouble];
+						auto toId = policy(serversReserved[isDouble], serversUsedHasId[isDouble], 
+							vmInfo.cpuCores, vmInfo.memorySize);
+						if (toId.first == -1) {
+							rollbackMigrate(tim);
+							failMigrate.emplace_back(e);
+							migrateSuccess -= serverIndexToVmId[isDouble][e.second].size();
+							isSuccess = false;
+							failMigrateCnt.emplace(e.second);
+							break;
+						}
+						auto fromId = installId[vmId];
+						doMigrate(vmId, fromId, std::vector<int>{isDouble, toId.first, toId.second});
+					}
+					if (isSuccess) {
+						successMigrate.emplace_back(e);
+					}
+				}
+
+				for (const auto &e : failMigrate) {
+					serversUsedHasId[isDouble][e.first] = e.second;
+				}
+				failMigrate.clear();
+
+				migrateLim -= migrateSuccess;
+				totalMigration += migrateSuccess;
+				if (migrateSuccess == 0) {
+					migrateStep /= 2;
+				}
+				
+				while (!migrateRecords.empty()) {
+					auto migrateRecord = migrateRecords.top();
+					migrateRecords.pop();
+					int vmId = migrateRecord.vmId;
+					auto fromId = migrateRecord.fromId;
+					auto toId = migrateRecord.toId;
+					serverIndexToVmId[fromId[0]][fromId[1]].erase(
+						std::find(serverIndexToVmId[fromId[0]][fromId[1]].begin(), serverIndexToVmId[fromId[0]][fromId[1]].end(), vmId));
+					serverIndexToVmId[toId[0]][toId[1]].emplace_back(vmId);
+					ansMigrate.push_back({vmIdOrdered[vmId], toId[0], toId[1], toId[2]});
+				}
+				// break;
+				migrateRound ^= 1;
+			}
+
+			for (const auto &e : successMigrate) {
+				serversUsedHasId[isDouble][e.first] = e.second;
+			}
+
+			for (auto &e : serversUsedHasId[isDouble]) {
+				assert(e != -1);
+			}
+		}
 	
-		// std::vector<std::pair<int, int>> readyMigrate, successMigrate, failMigrate;
-		// std::set<int> failMigrateCnt;
-		// int migrateStep = migrateLim;
-		// int migrateRound = 0;
-		// while (migrateStep > 0 && migrateLim > 0) {
-			
-		// 	if (!migrateRound) {
-		// 		failMigrateCnt.clear();
-		// 	}
-		// 	readyMigrate.clear();
-		// 	migrateStep = std::min(migrateStep, migrateLim);
-		// 	int migrateCnt = 0;
-		// 	for (int i = 0; i < serverIndexLim; ++i) {
-		// 		int index = serversUsedHasId[i];
-		// 		if (index == -1) continue;
-		// 		if (migrateRound && failMigrateCnt.count(index)) continue;
-		// 		if (migrateCnt + serverIndexToVmId[index].size() > migrateStep) {
-		// 			break;
-		// 		}
-		// 		serversUsedHasId[i] = -1;
-		// 		migrateCnt += serverIndexToVmId[index].size();
-		// 		readyMigrate.emplace_back(i, index);
-		// 	}
 
-		// 	int migrateSuccess = 0;
-		// 	for (const auto &e : readyMigrate) {
-		// 		int tim = migrateRecords.size();
-		// 		migrateSuccess += serverIndexToVmId[e.second].size();
-		// 		bool isSuccess = true;
-		// 		for (const auto &vmId : serverIndexToVmId[e.second]) {
-		// 			const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
-		// 			auto policy = policys[vmInfo.isDouble];
-		// 			auto toId = policy(serversReserved, serversUsedHasId, vmInfo.cpuCores, vmInfo.memorySize);
-		// 			if (toId.first == -1) {
-		// 				rollbackMigrate(tim);
-		// 				failMigrate.emplace_back(e);
-		// 				migrateSuccess -= serverIndexToVmId[e.second].size();
-		// 				isSuccess = false;
-		// 				failMigrateCnt.emplace(e.second);
-		// 				break;
-		// 			}
-		// 			auto fromId = installId[vmId];
-		// 			doMigrate(vmId, fromId, toId);
-		// 		}
-		// 		if (isSuccess) {
-		// 			successMigrate.emplace_back(e);
-		// 		}
-		// 	}
-
-		// 	for (const auto &e : failMigrate) {
-		// 		serversUsedHasId[e.first] = e.second;
-		// 	}
-		// 	failMigrate.clear();
-
-		// 	migrateLim -= migrateSuccess;
-		// 	totalMigration += migrateSuccess;
-		// 	if (migrateSuccess == 0) {
-		// 		migrateStep /= 2;
-		// 	}
-			
-		// 	while (!migrateRecords.empty()) {
-		// 		auto migrateRecord = migrateRecords.top();
-		// 		migrateRecords.pop();
-		// 		int vmId = migrateRecord.vmId;
-		// 		auto fromId = migrateRecord.fromId;
-		// 		auto toId = migrateRecord.toId;
-		// 		serverIndexToVmId[fromId.first].erase(
-		// 			std::find(serverIndexToVmId[fromId.first].begin(), serverIndexToVmId[fromId.first].end(), vmId));
-		// 		serverIndexToVmId[toId.first].emplace_back(vmId);
-		// 		ansMigrate.push_back({vmIdOrdered[vmId], toId.first, toId.second});
-		// 	}
-		// 	// break;
-		// 	migrateRound ^= 1;
-		// }
-
-		// for (const auto &e : successMigrate) {
-		// 	serversUsedHasId[e.first] = e.second;
-		// }
-
-		// for (auto &e : serversUsedHasId) {
-		// 	assert(e != -1);
-		// }
 
 		auto mergeVmId = [&](int isDouble, int index) {
 			for (const auto &v : newVmId[isDouble][index]) {
@@ -542,18 +571,18 @@ private:
 
 		// std::cout << "(migration, " << ansMigrate.size() << ")" << std::endl;
 		outputBuffer += "(migration, " + std::to_string(ansMigrate.size()) + ")\n";
-		// for (const auto &vc : ansMigrate) {
-		// 	if (vc.back() == -1) {
-		// 		// std::cout << "(" << vc[0] << ", " << serversUsed[vc[1]].serverId << ")" << std::endl;
-		// 		outputBuffer += "(" + std::to_string(vc[0]) + ", " + std::to_string(serversUsed[vc[1]].serverId) + ")\n";
-		// 	}
-		// 	else {
-		// 		// std::cout << "(" << vc[0] << ", " << serversUsed[vc[1]].serverId << 
-		// 		// 	", " << (vc[2] ? "B" : "A") << ")" << std::endl;
-		// 		outputBuffer += "(" + std::to_string(vc[0]) + ", " + std::to_string(serversUsed[vc[1]].serverId) 
-		// 			+ ", " + (vc[2] ? "B" : "A") + ")\n";
-		// 	}
-		// }
+		for (const auto &vc : ansMigrate) {
+			if (vc.back() == -1) {
+				// std::cout << "(" << vc[0] << ", " << serversUsed[vc[1]].serverId << ")" << std::endl;
+				outputBuffer += "(" + std::to_string(vc[0]) + ", " + std::to_string(serversUsed[vc[1]][vc[2]].serverId) + ")\n";
+			}
+			else {
+				// std::cout << "(" << vc[0] << ", " << serversUsed[vc[1]].serverId << 
+				// 	", " << (vc[2] ? "B" : "A") << ")" << std::endl;
+				outputBuffer += "(" + std::to_string(vc[0]) + ", " + std::to_string(serversUsed[vc[1]][vc[2]].serverId) 
+					+ ", " + (vc[3] ? "B" : "A") + ")\n";
+			}
+		}
 
 		for (const auto &id : ansId) {
 			if (id[2] != -1) {
@@ -715,8 +744,8 @@ std::pair<long long, int> solveMultithread(std::string in = "", std::string out 
 	Solution::read();
 	std::fclose(stdin);
 
-	// std::vector<double> acceptRanges{1.25, 1.30, 1.35, 1.40, 1.45, 1.50, 1.55, 1.60};
-	std::vector<double> acceptRanges{1.50};
+	std::vector<double> acceptRanges{1.00, 1.05, 1.10, 1.15, 1.20, 1.25, 1.30, 1.35, 1.40, 1.45, 1.50, 1.55, 1.60};
+	// std::vector<double> acceptRanges{1.50};
 
 	int n = acceptRanges.size();
 	std::vector<std::promise<Solution::return_type>> promises;
@@ -772,7 +801,7 @@ int main() {
 	#ifndef DEBUG
 	Solution::read();
 
-	std::vector<double> acceptRanges{1.35, 1.40, 1.45, 1.50};
+	std::vector<double> acceptRanges{1.30, 1.35, 1.40, 1.45};
 
 	int n = acceptRanges.size();
 	std::vector<std::promise<Solution::return_type>> promises;
