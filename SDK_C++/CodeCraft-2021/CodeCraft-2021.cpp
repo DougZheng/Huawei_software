@@ -94,16 +94,29 @@ public:
 			return serverCost / (cpuCores[0] + cpuCores[1]); 
 		}
 
-		double calUsedRatio() {
-			// double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
-			// double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
-			// return cpuRatio;
+		double calUsedRatio(double range = 1.20) {
 			double cpuRatio = static_cast<double>(cpuUsed) / cpuTotal;
 			double memoryRatio = static_cast<double>(memoryUsed) / memoryTotal;
-			// return cpuRatio * 0.8 + memoryRatio * 0.2;
-			double k = cpuRatio / (memoryRatio + 0.05);
-			return k > 1 ? -k : -1 / k;
+			double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
+			cpuVsMemory = cpuVsMemory > 1.0 ? cpuVsMemory : 1.0 / cpuVsMemory;
+			return -cpuVsMemory;
+			// return -500.0 * static_cast<int>(cpuVsMemory / range) + cpuRatio;
 		}
+
+		// double calUsedRatio(double levelCoef = 500.0, double acceptRange = 1.50) {
+		// 	// double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
+		// 	// double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
+		// 	// return cpuRatio;
+		// 	// double cpuRatio = static_cast<double>(cpuUsed) / cpuTotal;
+		// 	// double memoryRatio = static_cast<double>(memoryUsed) / memoryTotal;
+		// 	// double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
+		// 	// cpuVsMemory = cpuVsMemory > 1.0 ? cpuVsMemory : 1.0 / cpuVsMemory;
+		// 	// return -static_cast<int>(cpuVsMemory / acceptRange) + cpuRatio;
+		// 	double serverK = cpuTotal / (0.05 + memoryTotal);
+		// 	double vmK = cpuUsed / (0.05 + memoryUsed);
+		// 	double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
+		// 	return -(levelCoef * static_cast<int>(ratio / acceptRange)) + (1.0 * cpuUsed / cpuTotal);
+		// }
 	};
 
 	struct VmInfo {
@@ -204,7 +217,7 @@ private:
 		double serverK = static_cast<double>(serverCpu) / serverMemory;
 		double vmK = static_cast<double>(vmCpu) / vmMemory;
 		double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
-		return levelCoef * static_cast<int>(ratio / acceptRange) + (serverCpu - vmCpu);
+		return levelCoef * static_cast<int>(ratio / acceptRange) + vmK * (serverCpu - vmCpu) + 1.0 / vmK * (serverMemory - vmMemory);
 	}
 
 	std::pair<int, int> bestFit1(const std::vector<ServerInfo> &servers, 
@@ -803,7 +816,7 @@ int main() {
 	#ifndef DEBUG
 	Solution::read();
 
-	std::vector<double> acceptRanges{1.25, 1.30, 1.35, 1.40};
+	std::vector<double> acceptRanges{1.20, 1.30};
 
 	int n = acceptRanges.size();
 	std::vector<std::promise<Solution::return_type>> promises;
