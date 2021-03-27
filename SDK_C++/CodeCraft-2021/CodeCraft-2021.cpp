@@ -94,29 +94,30 @@ public:
 			return serverCost / (cpuCores[0] + cpuCores[1]); 
 		}
 
-		double calUsedRatio(double range = 1.20) {
-			double cpuRatio = static_cast<double>(cpuUsed) / cpuTotal;
-			double memoryRatio = static_cast<double>(memoryUsed) / memoryTotal;
-			double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
-			cpuVsMemory = cpuVsMemory > 1.0 ? cpuVsMemory : 1.0 / cpuVsMemory;
-			return -cpuVsMemory;
-			// return -500.0 * static_cast<int>(cpuVsMemory / range) + cpuRatio;
-		}
-
-		// double calUsedRatio(double levelCoef = 500.0, double acceptRange = 1.50) {
-		// 	// double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
-		// 	// double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
-		// 	// return cpuRatio;
-		// 	// double cpuRatio = static_cast<double>(cpuUsed) / cpuTotal;
-		// 	// double memoryRatio = static_cast<double>(memoryUsed) / memoryTotal;
-		// 	// double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
-		// 	// cpuVsMemory = cpuVsMemory > 1.0 ? cpuVsMemory : 1.0 / cpuVsMemory;
-		// 	// return -static_cast<int>(cpuVsMemory / acceptRange) + cpuRatio;
-		// 	double serverK = cpuTotal / (0.05 + memoryTotal);
-		// 	double vmK = cpuUsed / (0.05 + memoryUsed);
-		// 	double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
-		// 	return -(levelCoef * static_cast<int>(ratio / acceptRange)) + (1.0 * cpuUsed / cpuTotal);
+		// double calUsedRatio(double range = 1.20) {
+		// 	double cpuRatio = static_cast<double>(cpuUsed) / cpuTotal;
+		// 	double memoryRatio = static_cast<double>(memoryUsed) / memoryTotal;
+		// 	double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
+		// 	cpuVsMemory = cpuVsMemory > 1.0 ? cpuVsMemory : 1.0 / cpuVsMemory;
+		// 	// return cpuVsMemory * cpuRatio + 1.0 / cpuVsMemory * memoryRatio;
+		// 	return -cpuVsMemory;
+		// 	// return -500.0 * static_cast<int>(cpuVsMemory / range) + cpuRatio;
 		// }
+
+		double calUsedRatio(double levelCoef = 300.0, double acceptRange = 1.20) {
+			// double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
+			// double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
+			// return cpuRatio;
+			// double cpuRatio = static_cast<double>(cpuUsed) / cpuTotal;
+			// double memoryRatio = static_cast<double>(memoryUsed) / memoryTotal;
+			// double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
+			// cpuVsMemory = cpuVsMemory > 1.0 ? cpuVsMemory : 1.0 / cpuVsMemory;
+			// return -static_cast<int>(cpuVsMemory / acceptRange) + cpuRatio;
+			double serverK = cpuTotal / (0.05 + memoryTotal);
+			double vmK = cpuUsed / (0.05 + memoryUsed);
+			double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
+			return -(levelCoef * static_cast<int>(ratio / acceptRange));
+		}
 	};
 
 	struct VmInfo {
