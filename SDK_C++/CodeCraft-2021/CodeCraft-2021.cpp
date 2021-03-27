@@ -58,8 +58,8 @@ public:
 		int powerCost;
 		int serverId = -1;
 
-		int cpuUsed = 0;
-		int memoryUsed = 0;
+		int cpuUsed[2] = {};
+		int memoryUsed[2] = {};
 
 		int cpuTotal;
 		int memoryTotal;
@@ -73,8 +73,8 @@ public:
 			cpuCores[nodeId] -= cpu;
 			memorySize[nodeId] -= memory;
 
-			cpuUsed += cpu;
-			memoryUsed += memory;
+			cpuUsed[nodeId] += cpu;
+			memoryUsed[nodeId] += memory;
 		}
 
 		void uninstall(int nodeId, int cpu, int memory) {
@@ -86,8 +86,8 @@ public:
 			cpuCores[nodeId] += cpu;
 			memorySize[nodeId] += memory;
 
-			cpuUsed -= cpu;
-			memoryUsed -= memory;
+			cpuUsed[nodeId] -= cpu;
+			memoryUsed[nodeId] -= memory;
 		}
 
 		int calPriors() const {
@@ -108,13 +108,34 @@ public:
 			// double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
 			// double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
 			// return cpuRatio;
-			// double cpuRatio = static_cast<double>(cpuUsed) / cpuTotal;
-			// double memoryRatio = static_cast<double>(memoryUsed) / memoryTotal;
-			// double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
+
+			// double cpuRatio[2] = {
+			// 	cpuUsed[0] / (cpuTotal * 0.5), 
+			// 	cpuUsed[1] / (cpuTotal * 0.5)
+			// };
+			// double memoryRatio[2] = {
+			// 	memoryUsed[0] / (memoryTotal * 0.5), 
+			// 	memoryUsed[1] / (memoryTotal * 0.5)
+			// };
+			// double serverK = cpuTotal / (0.05 + memoryTotal);
+			// double vmK[2] = {
+			// 	cpuUsed[0] / (0.05 + memoryUsed[0]), 
+			// 	cpuUsed[1] / (0.05 + memoryUsed[1])
+			// };
+			// double ratio[2] = {
+			// 	std::max(serverK / vmK[0], vmK[0] / serverK),
+			// 	std::max(serverK / vmK[1], vmK[1] / serverK)
+			// };
+			// return -levelCoef * static_cast<int>(std::max(ratio[0], ratio[1]) / acceptRange)
+			// 	+ cpuRatio[0] + cpuRatio[1];
+
+			double cpuRatio = static_cast<double>(cpuUsed[0] + cpuUsed[1]) / cpuTotal;
+			double memoryRatio = static_cast<double>(memoryUsed[0] + memoryUsed[1]) / memoryTotal;
+			double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
 			// cpuVsMemory = cpuVsMemory > 1.0 ? cpuVsMemory : 1.0 / cpuVsMemory;
 			// return -static_cast<int>(cpuVsMemory / acceptRange) + cpuRatio;
 			double serverK = cpuTotal / (0.05 + memoryTotal);
-			double vmK = cpuUsed / (0.05 + memoryUsed);
+			double vmK = (cpuUsed[0] + cpuUsed[1]) / (0.05 + memoryUsed[0] + memoryUsed[1]);
 			double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
 			return -(levelCoef * static_cast<int>(ratio / acceptRange));
 		}
@@ -338,8 +359,6 @@ private:
 
 				// setMax(serversReserved[selId.first], serversUsed[selId.first]);
 
-				// assert(selId.first < newVmId.size());
-
 				vmIdToIndex[command.vmId] = command.vmIndex;
 			}
 			else { // del
@@ -350,8 +369,6 @@ private:
 				const auto &vmInfo = vmInfos[vmIdToIndex[command.vmId]];
 				serversUsed[insId[0]][insId[1]].uninstall(insId[2], vmInfo.cpuCores, vmInfo.memorySize);
 
-				// assert(insId.first < newVmId.size());
-
 				if (std::find(newVmId[insId[0]][insId[1]].cbegin(), newVmId[insId[0]][insId[1]].cend(), command.vmId) 
 					!= newVmId[insId[0]][insId[1]].cend()) {
 
@@ -359,7 +376,6 @@ private:
 						std::find(newVmId[insId[0]][insId[1]].begin(), newVmId[insId[0]][insId[1]].end(), command.vmId));
 				}
 				else {
-					// assert(insId.first < serverIndexToVmId.size());
 					serverIndexToVmId[insId[0]][insId[1]].erase(
 						std::find(serverIndexToVmId[insId[0]][insId[1]].begin(), serverIndexToVmId[insId[0]][insId[1]].end(), command.vmId));
 				}
@@ -408,14 +424,12 @@ private:
 		std::sort(serversUsedHasId[0].begin(), serversUsedHasId[0].end(), 
 			[&](int x, int y) -> bool {
 				return newVmId[0][x].empty() != newVmId[0][y].empty() ? newVmId[0][x].empty() > newVmId[0][y].empty()
-					// : serverIndexToVmId[0][x].size() < serverIndexToVmId[0][y].size();
 					: serversUsed[0][x].calUsedRatio() < serversUsed[0][y].calUsedRatio();
 			});
 
 		std::sort(serversUsedHasId[1].begin(), serversUsedHasId[1].end(), 
 			[&](int x, int y) -> bool {
 				return newVmId[1][x].empty() != newVmId[1][y].empty() ? newVmId[1][x].empty() > newVmId[1][y].empty()
-					// : serverIndexToVmId[1][x].size() < serverIndexToVmId[1][y].size();
 					: serversUsed[1][x].calUsedRatio() < serversUsed[1][y].calUsedRatio();
 			});
 
@@ -430,104 +444,195 @@ private:
 			}
 		}
 
-		// for (int i = 0; i < serversUsed[1].size(); ++i) {
-		// 	assert(serversUsed[1][i].cpuCores[0] == serversUsed[1][i].cpuCores[1]);
-		// }
+		std::vector<std::pair<int, int>> readyMigrate[2], successMigrate[2], failMigrate[2];
+		std::set<int> failMigrateCnt[2];
+		int migrateStep[2] = {migrateLim, migrateLim};
+		int migrateRound[2] = {0, 0};
+		int isDouble = std::rand() % 2;
 
-		// for (int i = 0; i < serversUsedHasId.size(); ++i) {
-		// 	int index = serversUsedHasId[i];
-		// 	if (!newVmId[index].empty()) {
-		// 		serverIndexLim = i;
-		// 		break;
-		// 	}
-		// }
+		while (migrateLim > 0 && (migrateStep[0] + migrateStep[1]) > 0) {
 
-		for (int isDouble = 0; isDouble < 2; ++isDouble) {
-
-			std::vector<std::pair<int, int>> readyMigrate, successMigrate, failMigrate;
-			std::set<int> failMigrateCnt;
-			int migrateStep = migrateLim;
-			int migrateRound = 0;
-			while (migrateStep > 0 && migrateLim > 0) {
-				
-				if (!migrateRound) {
-					failMigrateCnt.clear();
+			if (!migrateRound[isDouble]) {
+				failMigrateCnt[isDouble].clear();
+			}
+			readyMigrate[isDouble].clear();
+			migrateStep[isDouble] = std::min(migrateStep[isDouble], migrateLim);
+			int migrateCnt = 0;
+			for (int i = 0; i < serverIndexLim[isDouble]; ++i) {
+				int index = serversUsedHasId[isDouble][i];
+				if (index == -1) continue;
+				// if (migrateRound[isDouble] && failMigrateCnt[isDouble].count(index)) continue;
+				if (migrateCnt + serverIndexToVmId[isDouble][index].size() > migrateStep[isDouble]) {
+					break;
 				}
-				readyMigrate.clear();
-				migrateStep = std::min(migrateStep, migrateLim);
-				int migrateCnt = 0;
-				for (int i = 0; i < serverIndexLim[isDouble]; ++i) {
-					int index = serversUsedHasId[isDouble][i];
-					if (index == -1) continue;
-					if (migrateRound && failMigrateCnt.count(index)) continue;
-					if (migrateCnt + serverIndexToVmId[isDouble][index].size() > migrateStep) {
-						break;
-					}
-					serversUsedHasId[isDouble][i] = -1;
-					migrateCnt += serverIndexToVmId[isDouble][index].size();
-					readyMigrate.emplace_back(i, index);
-				}
-
-				int migrateSuccess = 0;
-				for (const auto &e : readyMigrate) {
-					int tim = migrateRecords.size();
-					migrateSuccess += serverIndexToVmId[isDouble][e.second].size();
-					bool isSuccess = true;
-					for (const auto &vmId : serverIndexToVmId[isDouble][e.second]) {
-						const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
-						auto policy = policys[vmInfo.isDouble];
-						auto toId = policy(serversReserved[isDouble], serversUsedHasId[isDouble], 
-							vmInfo.cpuCores, vmInfo.memorySize);
-						if (toId.first == -1) {
-							rollbackMigrate(tim);
-							failMigrate.emplace_back(e);
-							migrateSuccess -= serverIndexToVmId[isDouble][e.second].size();
-							isSuccess = false;
-							failMigrateCnt.emplace(e.second);
-							break;
-						}
-						auto fromId = installId[vmId];
-						doMigrate(vmId, fromId, std::vector<int>{isDouble, toId.first, toId.second});
-					}
-					if (isSuccess) {
-						successMigrate.emplace_back(e);
-					}
-				}
-
-				for (const auto &e : failMigrate) {
-					serversUsedHasId[isDouble][e.first] = e.second;
-				}
-				failMigrate.clear();
-
-				migrateLim -= migrateSuccess;
-				totalMigration += migrateSuccess;
-				if (migrateSuccess == 0) {
-					migrateStep /= 2;
-				}
-				
-				while (!migrateRecords.empty()) {
-					auto migrateRecord = migrateRecords.top();
-					migrateRecords.pop();
-					int vmId = migrateRecord.vmId;
-					auto fromId = migrateRecord.fromId;
-					auto toId = migrateRecord.toId;
-					serverIndexToVmId[fromId[0]][fromId[1]].erase(
-						std::find(serverIndexToVmId[fromId[0]][fromId[1]].begin(), serverIndexToVmId[fromId[0]][fromId[1]].end(), vmId));
-					serverIndexToVmId[toId[0]][toId[1]].emplace_back(vmId);
-					ansMigrate.push_back({vmIdOrdered[vmId], toId[0], toId[1], toId[2]});
-				}
-				// break;
-				migrateRound ^= 1;
+				serversUsedHasId[isDouble][i] = -1;
+				migrateCnt += serverIndexToVmId[isDouble][index].size();
+				readyMigrate[isDouble].emplace_back(i, index);
 			}
 
-			for (const auto &e : successMigrate) {
+			int migrateSuccess = 0;
+			failMigrate[isDouble].clear();
+			for (const auto &e : readyMigrate[isDouble]) {
+				int tim = migrateRecords.size();
+				migrateSuccess += serverIndexToVmId[isDouble][e.second].size();
+				bool isSuccess = true;
+				for (const auto &vmId : serverIndexToVmId[isDouble][e.second]) {
+					const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+					auto policy = policys[vmInfo.isDouble];
+					auto toId = policy(serversReserved[isDouble], serversUsedHasId[isDouble], 
+						vmInfo.cpuCores, vmInfo.memorySize);
+					if (toId.first == -1) {
+						rollbackMigrate(tim);
+						failMigrate[isDouble].emplace_back(e);
+						migrateSuccess -= serverIndexToVmId[isDouble][e.second].size();
+						isSuccess = false;
+						failMigrateCnt[isDouble].emplace(e.second);
+						break;
+					}
+					auto fromId = installId[vmId];
+					doMigrate(vmId, fromId, std::vector<int>{isDouble, toId.first, toId.second});
+				}
+				if (isSuccess) {
+					successMigrate[isDouble].emplace_back(e);
+				}
+			}
+
+			if (true) {
+				for (const auto &e : readyMigrate[isDouble]) {
+					assert(serversUsedHasId[isDouble][e.first] == -1);
+				}
+			}
+
+			for (const auto &e : failMigrate[isDouble]) {
 				serversUsedHasId[isDouble][e.first] = e.second;
 			}
 
-			for (auto &e : serversUsedHasId[isDouble]) {
-				assert(e != -1);
+			if (migrateSuccess == 0) {
+				for (const auto &e : readyMigrate[isDouble]) {
+					if (serverIndexToVmId[isDouble][e.second].empty()) continue;
+					assert(serversUsedHasId[isDouble][e.first] != -1);
+				}
+			}
+
+			// std::cerr << isDouble << ": " << migrateStep[isDouble] << " " << migrateSuccess 
+			//  << " " << readyMigrate[isDouble].size() << " " << failMigrate[isDouble].size() << std::endl;
+
+			migrateLim -= migrateSuccess;
+			totalMigration += migrateSuccess;
+			if (migrateSuccess == 0) {
+				migrateStep[isDouble] /= 2;
+			}
+			
+			while (!migrateRecords.empty()) {
+				auto migrateRecord = migrateRecords.top();
+				migrateRecords.pop();
+				int vmId = migrateRecord.vmId;
+				auto fromId = migrateRecord.fromId;
+				auto toId = migrateRecord.toId;
+				serverIndexToVmId[fromId[0]][fromId[1]].erase(
+					std::find(serverIndexToVmId[fromId[0]][fromId[1]].begin(), serverIndexToVmId[fromId[0]][fromId[1]].end(), vmId));
+				serverIndexToVmId[toId[0]][toId[1]].emplace_back(vmId);
+				ansMigrate.push_back({vmIdOrdered[vmId], toId[0], toId[1], toId[2]});
+			}
+
+			migrateRound[isDouble] ^= 1;
+
+			isDouble ^= 1;
+		}
+
+		for (int isDouble = 0; isDouble < 2; ++isDouble) {
+			for (const auto &e : successMigrate[isDouble]) {
+				serversUsedHasId[isDouble][e.first] = e.second;
 			}
 		}
+		// std::cerr << std::endl;
+
+		// for (int isDouble = 0; isDouble > -1; --isDouble) {
+
+		// 	std::vector<std::pair<int, int>> readyMigrate, successMigrate, failMigrate;
+		// 	std::set<int> failMigrateCnt;
+		// 	int migrateStep = migrateLim;
+		// 	int migrateRound = 0;
+		// 	while (migrateStep > 0 && migrateLim > 0) {
+				
+		// 		if (!migrateRound) {
+		// 			failMigrateCnt.clear();
+		// 		}
+		// 		readyMigrate.clear();
+		// 		migrateStep = std::min(migrateStep, migrateLim);
+		// 		int migrateCnt = 0;
+		// 		for (int i = 0; i < serverIndexLim[isDouble]; ++i) {
+		// 			int index = serversUsedHasId[isDouble][i];
+		// 			if (index == -1) continue;
+		// 			if (migrateRound && failMigrateCnt.count(index)) continue;
+		// 			if (migrateCnt + serverIndexToVmId[isDouble][index].size() > migrateStep) {
+		// 				break;
+		// 			}
+		// 			serversUsedHasId[isDouble][i] = -1;
+		// 			migrateCnt += serverIndexToVmId[isDouble][index].size();
+		// 			readyMigrate.emplace_back(i, index);
+		// 		}
+
+		// 		int migrateSuccess = 0;
+		// 		for (const auto &e : readyMigrate) {
+		// 			int tim = migrateRecords.size();
+		// 			migrateSuccess += serverIndexToVmId[isDouble][e.second].size();
+		// 			bool isSuccess = true;
+		// 			for (const auto &vmId : serverIndexToVmId[isDouble][e.second]) {
+		// 				const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+		// 				auto policy = policys[vmInfo.isDouble];
+		// 				auto toId = policy(serversReserved[isDouble], serversUsedHasId[isDouble], 
+		// 					vmInfo.cpuCores, vmInfo.memorySize);
+		// 				if (toId.first == -1) {
+		// 					rollbackMigrate(tim);
+		// 					failMigrate.emplace_back(e);
+		// 					migrateSuccess -= serverIndexToVmId[isDouble][e.second].size();
+		// 					isSuccess = false;
+		// 					failMigrateCnt.emplace(e.second);
+		// 					break;
+		// 				}
+		// 				auto fromId = installId[vmId];
+		// 				doMigrate(vmId, fromId, std::vector<int>{isDouble, toId.first, toId.second});
+		// 			}
+		// 			if (isSuccess) {
+		// 				successMigrate.emplace_back(e);
+		// 			}
+		// 		}
+
+		// 		for (const auto &e : failMigrate) {
+		// 			serversUsedHasId[isDouble][e.first] = e.second;
+		// 		}
+		// 		failMigrate.clear();
+
+		// 		migrateLim -= migrateSuccess;
+		// 		totalMigration += migrateSuccess;
+		// 		if (migrateSuccess == 0) {
+		// 			migrateStep /= 2;
+		// 		}
+				
+		// 		while (!migrateRecords.empty()) {
+		// 			auto migrateRecord = migrateRecords.top();
+		// 			migrateRecords.pop();
+		// 			int vmId = migrateRecord.vmId;
+		// 			auto fromId = migrateRecord.fromId;
+		// 			auto toId = migrateRecord.toId;
+		// 			serverIndexToVmId[fromId[0]][fromId[1]].erase(
+		// 				std::find(serverIndexToVmId[fromId[0]][fromId[1]].begin(), serverIndexToVmId[fromId[0]][fromId[1]].end(), vmId));
+		// 			serverIndexToVmId[toId[0]][toId[1]].emplace_back(vmId);
+		// 			ansMigrate.push_back({vmIdOrdered[vmId], toId[0], toId[1], toId[2]});
+		// 		}
+		// 		// break;
+		// 		migrateRound ^= 1;
+		// 	}
+
+		// 	for (const auto &e : successMigrate) {
+		// 		serversUsedHasId[isDouble][e.first] = e.second;
+		// 	}
+
+		// 	for (auto &e : serversUsedHasId[isDouble]) {
+		// 		assert(e != -1);
+		// 	}
+		// }
 	
 
 
@@ -542,9 +647,6 @@ private:
 				mergeVmId(i, j);
 			}
 		}
-		// for (int i = 0; i < serversUsed.size(); ++i) {
-		// 	mergeVmId(i);
-		// }
 
 		for (const auto &it : buyCnt) {
 			totalCost += it.second * 1ll * serverInfos[it.first].serverCost;
@@ -556,16 +658,10 @@ private:
 				totalCost += serversUsed[i][j].powerCost;
 			}
 		}
-		// for (int i = 0; i < serversUsed.size(); ++i) {
-		// 	if (serverIndexToVmId[i].empty()) continue;
-		// 	totalCost += serversUsed[i].powerCost;
-		// }
 
 		outputBuffer += "(purchase, " + std::to_string(buyCnt.size()) + ")\n";
-		// std::cout << "(purchase, " << buyCnt.size() << ")" << std::endl;
 		int preCnt = 0;
 		for (auto &it : buyCnt) {
-			// std::cout << "(" << serverInfos[it.first].serverType << ", " << it.second << ")" << std::endl;
 			outputBuffer += "(" + serverInfos[it.first].serverType + ", " + std::to_string(it.second) + ")\n";
 			it.second += preCnt;
 			preCnt = it.second;
@@ -580,22 +676,13 @@ private:
 			}
 			serversUsedNum[i] = serversUsed[i].size();
 		}
-		// for (int i = serversUsed.size() - 1; i >= serversUsedNum; --i) {
-		// 	int serverIndex = serversUsed[i].serverId;
-		// 	serversUsed[i].serverId = serversUsedNum + (--buyCnt[serverIndex]);
-		// }
-		// serversUsedNum = serversUsed.size();
 
-		// std::cout << "(migration, " << ansMigrate.size() << ")" << std::endl;
 		outputBuffer += "(migration, " + std::to_string(ansMigrate.size()) + ")\n";
 		for (const auto &vc : ansMigrate) {
 			if (vc.back() == -1) {
-				// std::cout << "(" << vc[0] << ", " << serversUsed[vc[1]].serverId << ")" << std::endl;
 				outputBuffer += "(" + std::to_string(vc[0]) + ", " + std::to_string(serversUsed[vc[1]][vc[2]].serverId) + ")\n";
 			}
 			else {
-				// std::cout << "(" << vc[0] << ", " << serversUsed[vc[1]].serverId << 
-				// 	", " << (vc[2] ? "B" : "A") << ")" << std::endl;
 				outputBuffer += "(" + std::to_string(vc[0]) + ", " + std::to_string(serversUsed[vc[1]][vc[2]].serverId) 
 					+ ", " + (vc[3] ? "B" : "A") + ")\n";
 			}
@@ -603,13 +690,10 @@ private:
 
 		for (const auto &id : ansId) {
 			if (id[2] != -1) {
-				// std::cout << "(" << serversUsed[id.first].serverId 
-				// 	<< ", " << (id.second ? "B" : "A") << ")" << std::endl;
 				outputBuffer += "(" + std::to_string(serversUsed[id[0]][id[1]].serverId) 
 					+ ", " + (id[2] ? "B" : "A") + ")\n";
 			}
 			else {
-				// std::cout << "(" << serversUsed[id.first].serverId << ")" << std::endl;
 				outputBuffer += "(" + std::to_string(serversUsed[id[0]][id[1]].serverId) + ")\n";
 			}
 		}
@@ -818,7 +902,7 @@ int main() {
 	#ifndef DEBUG
 	Solution::read();
 
-	std::vector<double> acceptRanges{1.20, 1.40};
+	std::vector<double> acceptRanges{1.25, 1.45};
 
 	int n = acceptRanges.size();
 	std::vector<std::promise<Solution::return_type>> promises;
