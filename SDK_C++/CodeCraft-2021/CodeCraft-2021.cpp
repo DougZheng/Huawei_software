@@ -17,29 +17,37 @@
 #include <thread>
 #include <future>
 
-// #define DEBUG
+#define DEBUG
 
 class Solution {
 
 public:
+
+	static std::vector<std::string> split(const std::string &s, const std::string &delimiters = " ,()") {
+		std::vector<std::string> tokens;
+		std::string::size_type lastPos = s.find_first_not_of(delimiters, 0);
+		std::string::size_type pos = s.find_first_of(delimiters, lastPos);
+		while (pos != std::string::npos || lastPos != std::string::npos) {
+			tokens.emplace_back(s.substr(lastPos, pos - lastPos));
+			lastPos = s.find_first_not_of(delimiters, pos);
+			pos = s.find_first_of(delimiters, lastPos);
+		}
+		return tokens;
+	}
 
 	using return_type = std::tuple<long long, int, std::string>;
 
 	struct ServerInfo {
 
 		friend std::istream &operator>>(std::istream &is, ServerInfo &serverInfo) {
-			std::string serverType, cpuCores, memorySize, serverCost, powerCost;
-			is >> serverType >> cpuCores >> memorySize >> serverCost >> powerCost;
-			serverType.pop_back();
-			cpuCores.pop_back();
-			memorySize.pop_back();
-			serverCost.pop_back();
-			powerCost.pop_back();
-			serverInfo.serverType = serverType.substr(1);
-			serverInfo.cpuCores[0] = serverInfo.cpuCores[1] = std::stoi(cpuCores) / 2;
-			serverInfo.memorySize[0] = serverInfo.memorySize[1] = std::stoi(memorySize) / 2;
-			serverInfo.serverCost = std::stoi(serverCost);
-			serverInfo.powerCost = std::stoi(powerCost);
+			std::string s;
+			std::getline(is, s);
+			std::vector<std::string> tokens(Solution::split(s));
+			serverInfo.serverType = tokens[0];
+			serverInfo.cpuCores[0] = serverInfo.cpuCores[1] = std::stoi(tokens[1]) / 2;
+			serverInfo.memorySize[0] = serverInfo.memorySize[1] = std::stoi(tokens[2]) / 2;
+			serverInfo.serverCost = std::stoi(tokens[3]);
+			serverInfo.powerCost = std::stoi(tokens[4]);
 			return is;
 		};
 
@@ -90,20 +98,6 @@ public:
 			memoryUsed[nodeId] -= memory;
 		}
 
-		int calPriors() const {
-			return serverCost / (cpuCores[0] + cpuCores[1]); 
-		}
-
-		// double calUsedRatio(double range = 1.20) {
-		// 	double cpuRatio = static_cast<double>(cpuUsed) / cpuTotal;
-		// 	double memoryRatio = static_cast<double>(memoryUsed) / memoryTotal;
-		// 	double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
-		// 	cpuVsMemory = cpuVsMemory > 1.0 ? cpuVsMemory : 1.0 / cpuVsMemory;
-		// 	// return cpuVsMemory * cpuRatio + 1.0 / cpuVsMemory * memoryRatio;
-		// 	return -cpuVsMemory;
-		// 	// return -500.0 * static_cast<int>(cpuVsMemory / range) + cpuRatio;
-		// }
-
 		double calUsedRatio(double levelCoef = 300.0, double acceptRange = 1.20) {
 			// double cpuRatio = cpuUsed / (0.05 + cpuCores[0] + cpuCores[1]);
 			// double memoryRatio = memoryUsed / (0.05 + memorySize[0] + memorySize[1]);
@@ -129,14 +123,13 @@ public:
 			// return -levelCoef * static_cast<int>(std::max(ratio[0], ratio[1]) / acceptRange)
 			// 	+ cpuRatio[0] + cpuRatio[1];
 
-			double cpuRatio = static_cast<double>(cpuUsed[0] + cpuUsed[1]) / cpuTotal;
-			double memoryRatio = static_cast<double>(memoryUsed[0] + memoryUsed[1]) / memoryTotal;
-			double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
+			// double cpuRatio = static_cast<double>(cpuUsed[0] + cpuUsed[1]) / cpuTotal;
+			// double memoryRatio = static_cast<double>(memoryUsed[0] + memoryUsed[1]) / memoryTotal;
+			// double cpuVsMemory = cpuRatio / (memoryRatio + 0.05);
 			// cpuVsMemory = cpuVsMemory > 1.0 ? cpuVsMemory : 1.0 / cpuVsMemory;
-			// return -static_cast<int>(cpuVsMemory / acceptRange) + cpuRatio;
 			double serverK = cpuTotal / (0.05 + memoryTotal);
 			double vmK = (cpuUsed[0] + cpuUsed[1]) / (0.05 + memoryUsed[0] + memoryUsed[1]);
-			double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
+			double ratio = std::max(serverK / vmK, vmK / serverK);
 			return -(levelCoef * static_cast<int>(ratio / acceptRange));
 		}
 	};
@@ -144,16 +137,13 @@ public:
 	struct VmInfo {
 
 		friend std::istream &operator>>(std::istream &is, VmInfo &vmInfo) {
-			std::string vmType, cpuCores, memorySize, isDouble;
-			is >> vmType >> cpuCores >> memorySize >> isDouble;
-			vmType.pop_back();
-			cpuCores.pop_back();
-			memorySize.pop_back();
-			isDouble.pop_back();
-			vmInfo.vmType = vmType.substr(1);
-			vmInfo.cpuCores = std::stoi(cpuCores);
-			vmInfo.memorySize = std::stoi(memorySize);
-			vmInfo.isDouble = std::stoi(isDouble);
+			std::string s;
+			std::getline(is, s);
+			std::vector<std::string> tokens(Solution::split(s));
+			vmInfo.vmType = tokens[0];
+			vmInfo.cpuCores = std::stoi(tokens[1]);
+			vmInfo.memorySize = std::stoi(tokens[2]);
+			vmInfo.isDouble = std::stoi(tokens[3]);
 			return is;
 		}
 
@@ -173,18 +163,12 @@ public:
 	struct Command {
 
 		friend std::istream &operator>>(std::istream &is, Command &command) {
-			std::string commandType, vmType, vmId;
-			is >> commandType;
-			command.commandType = 0;
-			if (commandType[1] == 'a') {
-				command.commandType = 1;
-				is >> vmType;
-				vmType.pop_back();
-				command.vmType = vmType;
-			}
-			is >> vmId;
-			vmId.pop_back();
-			command.vmId = std::stoi(vmId);
+			std::string s;
+			std::getline(is, s);
+			std::vector<std::string> tokens(Solution::split(s));
+			command.commandType = tokens[0] == "add";
+			command.vmType = tokens.size() == 3 ? tokens[1] : "";
+			command.vmId = std::stoi(tokens.back());
 			return is;
 		}
 
@@ -202,6 +186,7 @@ public:
 	};
 
 private:
+
 	static std::vector<int> vmIdOrdered;
 	static std::vector<ServerInfo> serverInfos;
 	static std::unordered_map<std::string, int> vmTypeToIndex;
@@ -238,7 +223,7 @@ private:
 		}
 		double serverK = static_cast<double>(serverCpu) / serverMemory;
 		double vmK = static_cast<double>(vmCpu) / vmMemory;
-		double ratio = serverK > vmK ? serverK / vmK : vmK / serverK;
+		double ratio = std::max(serverK / vmK, vmK / serverK);
 		return levelCoef * static_cast<int>(ratio / acceptRange)
 			+ serverK * (serverCpu - vmCpu) + 1.0 / serverK * (serverMemory - vmMemory);
 	}
@@ -414,7 +399,7 @@ private:
 			serversReserved[toId[0]][toId[1]].uninstall(toId[2], vmInfo.cpuCores, vmInfo.memorySize);
 		};
 
-		auto rollbackMigrate = [&](int tim) {
+		auto rollbackMigrate = [&](size_t tim) {
 			while (migrateRecords.size() > tim) {
 				undoMigrate();
 			}
@@ -433,9 +418,9 @@ private:
 					: serversUsed[1][x].calUsedRatio() < serversUsed[1][y].calUsedRatio();
 			});
 
-		int serverIndexLim[2] = {serversUsed[0].size(), serversUsed[1].size()};
-		for (int i = 0; i < 2; ++i) {
-			for (int j = 0; j < serversUsedHasId[i].size(); ++j) {
+		size_t serverIndexLim[2] = {serversUsed[0].size(), serversUsed[1].size()};
+		for (size_t i = 0; i < 2; ++i) {
+			for (size_t j = 0; j < serversUsedHasId[i].size(); ++j) {
 				int index = serversUsedHasId[i][j];
 				if (!newVmId[i][index].empty()) {
 					serverIndexLim[i] = j;
@@ -458,11 +443,11 @@ private:
 			readyMigrate[isDouble].clear();
 			migrateStep[isDouble] = std::min(migrateStep[isDouble], migrateLim);
 			int migrateCnt = 0;
-			for (int i = 0; i < serverIndexLim[isDouble]; ++i) {
+			for (size_t i = 0; i < serverIndexLim[isDouble]; ++i) {
 				int index = serversUsedHasId[isDouble][i];
 				if (index == -1) continue;
 				// if (migrateRound[isDouble] && failMigrateCnt[isDouble].count(index)) continue;
-				if (migrateCnt + serverIndexToVmId[isDouble][index].size() > migrateStep[isDouble]) {
+				if (migrateCnt + int(serverIndexToVmId[isDouble][index].size()) > migrateStep[isDouble]) {
 					break;
 				}
 				serversUsedHasId[isDouble][i] = -1;
@@ -473,7 +458,7 @@ private:
 			int migrateSuccess = 0;
 			failMigrate[isDouble].clear();
 			for (const auto &e : readyMigrate[isDouble]) {
-				int tim = migrateRecords.size();
+				size_t tim = migrateRecords.size();
 				migrateSuccess += serverIndexToVmId[isDouble][e.second].size();
 				bool isSuccess = true;
 				for (const auto &vmId : serverIndexToVmId[isDouble][e.second]) {
@@ -497,21 +482,8 @@ private:
 				}
 			}
 
-			if (true) {
-				for (const auto &e : readyMigrate[isDouble]) {
-					assert(serversUsedHasId[isDouble][e.first] == -1);
-				}
-			}
-
 			for (const auto &e : failMigrate[isDouble]) {
 				serversUsedHasId[isDouble][e.first] = e.second;
-			}
-
-			if (migrateSuccess == 0) {
-				for (const auto &e : readyMigrate[isDouble]) {
-					if (serverIndexToVmId[isDouble][e.second].empty()) continue;
-					assert(serversUsedHasId[isDouble][e.first] != -1);
-				}
 			}
 
 			// std::cerr << isDouble << ": " << migrateStep[isDouble] << " " << migrateSuccess 
@@ -545,105 +517,15 @@ private:
 				serversUsedHasId[isDouble][e.first] = e.second;
 			}
 		}
-		// std::cerr << std::endl;
 
-		// for (int isDouble = 0; isDouble > -1; --isDouble) {
-
-		// 	std::vector<std::pair<int, int>> readyMigrate, successMigrate, failMigrate;
-		// 	std::set<int> failMigrateCnt;
-		// 	int migrateStep = migrateLim;
-		// 	int migrateRound = 0;
-		// 	while (migrateStep > 0 && migrateLim > 0) {
-				
-		// 		if (!migrateRound) {
-		// 			failMigrateCnt.clear();
-		// 		}
-		// 		readyMigrate.clear();
-		// 		migrateStep = std::min(migrateStep, migrateLim);
-		// 		int migrateCnt = 0;
-		// 		for (int i = 0; i < serverIndexLim[isDouble]; ++i) {
-		// 			int index = serversUsedHasId[isDouble][i];
-		// 			if (index == -1) continue;
-		// 			if (migrateRound && failMigrateCnt.count(index)) continue;
-		// 			if (migrateCnt + serverIndexToVmId[isDouble][index].size() > migrateStep) {
-		// 				break;
-		// 			}
-		// 			serversUsedHasId[isDouble][i] = -1;
-		// 			migrateCnt += serverIndexToVmId[isDouble][index].size();
-		// 			readyMigrate.emplace_back(i, index);
-		// 		}
-
-		// 		int migrateSuccess = 0;
-		// 		for (const auto &e : readyMigrate) {
-		// 			int tim = migrateRecords.size();
-		// 			migrateSuccess += serverIndexToVmId[isDouble][e.second].size();
-		// 			bool isSuccess = true;
-		// 			for (const auto &vmId : serverIndexToVmId[isDouble][e.second]) {
-		// 				const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
-		// 				auto policy = policys[vmInfo.isDouble];
-		// 				auto toId = policy(serversReserved[isDouble], serversUsedHasId[isDouble], 
-		// 					vmInfo.cpuCores, vmInfo.memorySize);
-		// 				if (toId.first == -1) {
-		// 					rollbackMigrate(tim);
-		// 					failMigrate.emplace_back(e);
-		// 					migrateSuccess -= serverIndexToVmId[isDouble][e.second].size();
-		// 					isSuccess = false;
-		// 					failMigrateCnt.emplace(e.second);
-		// 					break;
-		// 				}
-		// 				auto fromId = installId[vmId];
-		// 				doMigrate(vmId, fromId, std::vector<int>{isDouble, toId.first, toId.second});
-		// 			}
-		// 			if (isSuccess) {
-		// 				successMigrate.emplace_back(e);
-		// 			}
-		// 		}
-
-		// 		for (const auto &e : failMigrate) {
-		// 			serversUsedHasId[isDouble][e.first] = e.second;
-		// 		}
-		// 		failMigrate.clear();
-
-		// 		migrateLim -= migrateSuccess;
-		// 		totalMigration += migrateSuccess;
-		// 		if (migrateSuccess == 0) {
-		// 			migrateStep /= 2;
-		// 		}
-				
-		// 		while (!migrateRecords.empty()) {
-		// 			auto migrateRecord = migrateRecords.top();
-		// 			migrateRecords.pop();
-		// 			int vmId = migrateRecord.vmId;
-		// 			auto fromId = migrateRecord.fromId;
-		// 			auto toId = migrateRecord.toId;
-		// 			serverIndexToVmId[fromId[0]][fromId[1]].erase(
-		// 				std::find(serverIndexToVmId[fromId[0]][fromId[1]].begin(), serverIndexToVmId[fromId[0]][fromId[1]].end(), vmId));
-		// 			serverIndexToVmId[toId[0]][toId[1]].emplace_back(vmId);
-		// 			ansMigrate.push_back({vmIdOrdered[vmId], toId[0], toId[1], toId[2]});
-		// 		}
-		// 		// break;
-		// 		migrateRound ^= 1;
-		// 	}
-
-		// 	for (const auto &e : successMigrate) {
-		// 		serversUsedHasId[isDouble][e.first] = e.second;
-		// 	}
-
-		// 	for (auto &e : serversUsedHasId[isDouble]) {
-		// 		assert(e != -1);
-		// 	}
-		// }
-	
-
-
-		auto mergeVmId = [&](int isDouble, int index) {
+		auto mergeVmId = [&](size_t isDouble, size_t index) {
 			for (const auto &v : newVmId[isDouble][index]) {
 				serverIndexToVmId[isDouble][index].emplace_back(v);
 			}
 			newVmId[isDouble][index].clear();
 		};
-		for (int i = 0; i < 2; ++i) {
-			for (int j = 0; j < serversUsed[i].size(); ++j) {
+		for (size_t i = 0; i < 2; ++i) {
+			for (size_t j = 0; j < serversUsed[i].size(); ++j) {
 				mergeVmId(i, j);
 			}
 		}
@@ -652,8 +534,8 @@ private:
 			totalCost += it.second * 1ll * serverInfos[it.first].serverCost;
 		}
 
-		for (int i = 0; i < 2; ++i) {
-			for (int j = 0; j < serversUsed[i].size(); ++j) {
+		for (size_t i = 0; i < 2; ++i) {
+			for (size_t j = 0; j < serversUsed[i].size(); ++j) {
 				if (serverIndexToVmId[i][j].empty()) continue;
 				totalCost += serversUsed[i][j].powerCost;
 			}
@@ -718,6 +600,7 @@ public:
 
 		int serverNum;
 		std::cin >> serverNum;
+		std::cin.ignore();
 		serverInfos.reserve(serverNum);
 		for (int i = 0; i < serverNum; ++i) {
 			ServerInfo serverInfo;
@@ -729,6 +612,7 @@ public:
 
 		int vmNum;
 		std::cin >> vmNum;
+		std::cin.ignore();
 		vmInfos.reserve(vmNum);
 		for (int i = 0; i < vmNum; ++i) {
 			VmInfo vmInfo;
@@ -739,11 +623,13 @@ public:
 
 		int dayNum;
 		std::cin >> dayNum;
+		std::cin.ignore();
 		commands.resize(dayNum);
 		vmIdOrdered.clear();
 		for (int i = 0; i < dayNum; ++i) {
 			int commandNum;
 			std::cin >> commandNum;
+			std::cin.ignore();
 			commands[i].reserve(commandNum);
 			for (int j = 0; j < commandNum; ++j) {
 				Command command;
@@ -791,30 +677,8 @@ public:
 
 		serverInfosHasId.resize(serverInfos.size());
 		std::iota(serverInfosHasId.begin(), serverInfosHasId.end(), 0);
-		// std::sort(serverInfosHasId.begin(), serverInfosHasId.end(), 
-		// 	[](int x, int y) {
-		// 		return serverInfos[x].calPriors() < serverInfos[y].calPriors();
-		// 	});
 
-		int day = 0;
-		for (int i = 0; i < commands.size(); ++i) {
-			// if (day++ % 300 == 0) {
-			// 	Solution solution1 = *this;
-			// 	Solution solution2 = *this;
-			// 	solution1.setAcceptRange(1.4);
-			// 	solution2.setAcceptRange(1.5);
-			// 	for (int j = i; j < std::min(i + 300, (int)commands.size()); ++j) {
-			// 		solution1.solveOneDay(commands[j], false);
-			// 		solution2.solveOneDay(commands[j], false);
-			// 	}
-			// 	std::cerr << solution1.totalCost << " ?? " << solution2.totalCost << std::endl;
-			// 	if (solution1.totalCost < solution2.totalCost) {
-			// 		this->setAcceptRange(1.4);
-			// 	}
-			// 	else {
-			// 		this->setAcceptRange(1.5);
-			// 	}
-			// }
+		for (size_t i = 0; i < commands.size(); ++i) {
 			solveOneDay(commands[i]);
 		}
 		promiseAns.set_value(std::make_tuple(totalCost, totalMigration, outputBuffer));
@@ -846,7 +710,6 @@ std::pair<long long, int> solveMultithread(std::string in = "", std::string out 
 	std::fclose(stdin);
 
 	std::vector<double> acceptRanges{1.00, 1.05, 1.10, 1.15, 1.20, 1.25, 1.30, 1.35, 1.40, 1.45, 1.50, 1.55, 1.60};
-	// std::vector<double> acceptRanges{1.50};
 
 	int n = acceptRanges.size();
 	std::vector<std::promise<Solution::return_type>> promises;
