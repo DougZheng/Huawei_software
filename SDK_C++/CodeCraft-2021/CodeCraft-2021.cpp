@@ -17,7 +17,8 @@
 #include <thread>
 #include <future>
 
-#define DEBUG
+// #define DEBUG
+#define ON_LINE
 
 class Solution {
 
@@ -187,7 +188,6 @@ public:
 
 private:
 
-	static std::vector<int> vmIdOrdered;
 	static std::vector<ServerInfo> serverInfos;
 	static std::unordered_map<std::string, int> vmTypeToIndex;
 	static std::vector<VmInfo> vmInfos;
@@ -199,10 +199,12 @@ private:
 	std::vector<int> serversUsedHasId[2];
 	std::vector<ServerInfo> serversUsed[2];
 
-	std::vector<int> vmIdToIndex;
-	std::vector<std::vector<int>> installId;
+	std::unordered_map<int, int> vmIdToIndex;
+	std::unordered_map<int, std::vector<int>> installId;
 	std::vector<std::vector<int>> serverIndexToVmId[2];
 
+	static int dayNum;
+	static int previewNum;
 	int serversUsedNum[2] = {};
 	int vmResNum = 0;
 	int totalMigration = 0;
@@ -216,8 +218,22 @@ private:
 	double levelCoef = 300.0;
 	double acceptRange = 1.5;
 
+	inline double calF1(const ServerInfo &server, int nodeId, int vmCpu, int vmMemory) {
+		int serverCpu = server.cpuCores[nodeId];
+		int serverMemory = server.memorySize[nodeId];
+		if (serverCpu == 0 || serverMemory == 0) {
+			return oo;
+		}
+		double serverK = static_cast<double>(serverCpu) / serverMemory;
+		double vmK = static_cast<double>(vmCpu) / vmMemory;
+		double ratio = std::max(serverK / vmK, vmK / serverK);
+		return levelCoef * static_cast<int>(ratio / acceptRange)
+			+ serverK * (serverCpu - vmCpu) + 1.0 / serverK * (serverMemory - vmMemory);
+	}
 
-	inline double calF(int serverCpu, int serverMemory, int vmCpu, int vmMemory) {
+	inline double calF2(const ServerInfo &server, int vmCpu, int vmMemory) {
+		int serverCpu = server.cpuCores[0];
+		int serverMemory = server.memorySize[0];
 		if (serverCpu == 0 || serverMemory == 0) {
 			return oo;
 		}
@@ -236,8 +252,8 @@ private:
 			int index = serversHasId[i];
 			if (index == -1) continue;
 			const auto &server = servers[index];
-			double fval0 = calF(server.cpuCores[0], server.memorySize[0], cpuCores, memorySize);
-			double fval1 = calF(server.cpuCores[1], server.memorySize[1], cpuCores, memorySize);
+			double fval0 = calF1(server, 0, cpuCores, memorySize);
+			double fval1 = calF1(server, 1, cpuCores, memorySize);
 			if (server.cpuCores[0] >= cpuCores && server.memorySize[0] >= memorySize
 				&& fval0 < fmn) {
 				fmn = fval0;
@@ -262,9 +278,7 @@ private:
 			int index = serversHasId[i];
 			if (index == -1) continue;
 			const auto &server = servers[index];
-			double fval = calF(std::min(server.cpuCores[0], server.cpuCores[1]), 
-				std::min(server.memorySize[0], server.memorySize[1]), 
-				cpuCores, memorySize);
+			double fval = calF2(server, cpuCores, memorySize);
 			if (server.cpuCores[0] >= cpuCores && server.cpuCores[1] >= cpuCores
 				&& server.memorySize[0] >= memorySize && server.memorySize[1] >= memorySize
 				&& fval < fmn) {
@@ -290,21 +304,12 @@ private:
 		std::vector<std::vector<int>> ansId;
 		std::vector<std::vector<int>> ansMigrate;
 
-		int migrateLim = 5 * vmResNum / 1000;
+		int migrateLim = 3 * vmResNum / 100;
 
 		std::vector<ServerInfo> serversReserved[2]{serversUsed[0], serversUsed[1]};
 		decltype(serverIndexToVmId) newVmId;
 		newVmId[0].resize(serverIndexToVmId[0].size());
 		newVmId[1].resize(serverIndexToVmId[1].size());
-
-		// auto setMax = [](ServerInfo &server1, const ServerInfo &server2) {
-		// 	server1.cpuCores[0] = std::min(server1.cpuCores[0], server2.cpuCores[0]);
-		// 	server1.cpuCores[1] = std::min(server1.cpuCores[1], server2.cpuCores[1]);
-		// 	server1.memorySize[0] = std::min(server1.memorySize[0], server2.memorySize[0]);
-		// 	server1.memorySize[1] = std::min(server1.memorySize[1], server2.memorySize[1]);
-		// 	server1.cpuUsed = std::max(server1.cpuUsed, server2.cpuUsed);
-		// 	server1.memoryUsed = std::max(server1.memoryUsed, server2.memoryUsed);
-		// };
 
 		for (const auto &command : commands) {
 
@@ -341,8 +346,6 @@ private:
 
 				installId[command.vmId] = {vmInfo.isDouble, selId.first, selId.second};
 				ansId.push_back({vmInfo.isDouble, selId.first, selId.second});
-
-				// setMax(serversReserved[selId.first], serversUsed[selId.first]);
 
 				vmIdToIndex[command.vmId] = command.vmIndex;
 			}
@@ -433,10 +436,13 @@ private:
 		std::set<int> failMigrateCnt[2];
 		int migrateStep[2] = {migrateLim, migrateLim};
 		int migrateRound[2] = {0, 0};
-		int isDouble = std::rand() % 2;
+		// int isDouble = std::rand() % 2;
+		int isDouble = 0;
+
+		int cnt = 0;
 
 		while (migrateLim > 0 && (migrateStep[0] + migrateStep[1]) > 0) {
-
+			if (++cnt == 2) break;
 			if (!migrateRound[isDouble]) {
 				failMigrateCnt[isDouble].clear();
 			}
@@ -504,13 +510,14 @@ private:
 				serverIndexToVmId[fromId[0]][fromId[1]].erase(
 					std::find(serverIndexToVmId[fromId[0]][fromId[1]].begin(), serverIndexToVmId[fromId[0]][fromId[1]].end(), vmId));
 				serverIndexToVmId[toId[0]][toId[1]].emplace_back(vmId);
-				ansMigrate.push_back({vmIdOrdered[vmId], toId[0], toId[1], toId[2]});
+				ansMigrate.push_back({vmId, toId[0], toId[1], toId[2]});
 			}
 
 			migrateRound[isDouble] ^= 1;
 
 			isDouble ^= 1;
 		}
+		// std::cerr << std::endl;
 
 		for (int isDouble = 0; isDouble < 2; ++isDouble) {
 			for (const auto &e : successMigrate[isDouble]) {
@@ -580,6 +587,9 @@ private:
 			}
 		}
 
+		#ifdef ON_LINE
+		write();
+		#endif
 	}
 
 public:
@@ -588,6 +598,7 @@ public:
 
 		std::cout << outputBuffer;
 		std::cout.flush();
+		outputBuffer.clear();
 	}
 
 	static void read() {
@@ -596,7 +607,6 @@ public:
 		vmInfos.clear();
 		vmTypeToIndex.clear();
 		commands.clear();
-		vmIdOrdered.clear();
 
 		int serverNum;
 		std::cin >> serverNum;
@@ -621,11 +631,10 @@ public:
 			vmInfos.emplace_back(vmInfo);
 		}
 
-		int dayNum;
-		std::cin >> dayNum;
+		#ifndef ON_LINE
+		std::cin >> dayNum >> previewNum;
 		std::cin.ignore();
 		commands.resize(dayNum);
-		vmIdOrdered.clear();
 		for (int i = 0; i < dayNum; ++i) {
 			int commandNum;
 			std::cin >> commandNum;
@@ -635,23 +644,39 @@ public:
 				Command command;
 				std::cin >> command;
 				commands[i].emplace_back(command);
-				vmIdOrdered.emplace_back(command.vmId);
+				if (commands[i].back().commandType) {
+					commands[i].back().vmIndex = vmTypeToIndex[commands[i].back().vmType];
+				}
 			}
 		}
+		#endif
+	}
 
-		std::sort(vmIdOrdered.begin(), vmIdOrdered.end());
-		vmIdOrdered.erase(std::unique(vmIdOrdered.begin(), vmIdOrdered.end()), vmIdOrdered.end());
-		for (auto &cmds : commands) {
-			for (auto &cmd : cmds) {
-				cmd.vmId = std::lower_bound(vmIdOrdered.cbegin(), vmIdOrdered.cend(), cmd.vmId) - vmIdOrdered.cbegin();
-				if (cmd.commandType) {
-					cmd.vmIndex = vmTypeToIndex[cmd.vmType];
-				}
+	void readOneDay(int day) {
+		int commandNum;
+		std::cin >> commandNum;
+		std::cin.ignore();
+		commands[day].reserve(commandNum);
+		for (int i = 0; i < commandNum; ++i) {
+			Command command;
+			std::cin >> command;
+			commands[day].emplace_back(command);
+			if (commands[day].back().commandType) {
+				commands[day].back().vmIndex = vmTypeToIndex[commands[day].back().vmType];
 			}
 		}
 	}
 
 	void solve(std::promise<return_type> &promiseAns) {
+
+		#ifdef ON_LINE
+		std::cin >> dayNum >> previewNum;
+		std::cin.ignore();
+		commands.resize(dayNum);
+		for (int i = 0; i < previewNum; ++i) {
+			readOneDay(i);
+		}
+		#endif
 
 		outputBuffer.clear();
 
@@ -672,15 +697,21 @@ public:
 		totalCost = 0;
 		tim = 0;
 
-		vmIdToIndex.resize(vmIdOrdered.size());
-		installId.resize(vmIdOrdered.size());
-
 		serverInfosHasId.resize(serverInfos.size());
 		std::iota(serverInfosHasId.begin(), serverInfosHasId.end(), 0);
 
-		for (size_t i = 0; i < commands.size(); ++i) {
+		for (int i = 0; i < dayNum; ++i) {
 			solveOneDay(commands[i]);
+			#ifdef ON_LINE
+			if (previewNum + i < dayNum) {
+				readOneDay(previewNum + i);
+			}
+			#endif
 		}
+		// if (totalMigration < 45000) {
+		// 	while (true);
+		// }
+		// assert(totalMigration >= 45000);
 		promiseAns.set_value(std::make_tuple(totalCost, totalMigration, outputBuffer));
 	}
 
@@ -689,11 +720,12 @@ public:
 	}
 };
 
-std::vector<int> Solution::vmIdOrdered;
 std::vector<Solution::ServerInfo> Solution::serverInfos;
 std::unordered_map<std::string, int> Solution::vmTypeToIndex;
 std::vector<Solution::VmInfo> Solution::vmInfos;
 std::vector<std::vector<Solution::Command>> Solution::commands;
+int Solution::dayNum;
+int Solution::previewNum;
 
 std::pair<long long, int> solveMultithread(std::string in = "", std::string out = "") {
 
@@ -709,7 +741,8 @@ std::pair<long long, int> solveMultithread(std::string in = "", std::string out 
 	Solution::read();
 	std::fclose(stdin);
 
-	std::vector<double> acceptRanges{1.00, 1.05, 1.10, 1.15, 1.20, 1.25, 1.30, 1.35, 1.40, 1.45, 1.50, 1.55, 1.60};
+	// std::vector<double> acceptRanges{1.00, 1.05, 1.10, 1.15, 1.20, 1.25, 1.30, 1.35, 1.40, 1.45, 1.50, 1.55, 1.60};
+	std::vector<double> acceptRanges{1.25};
 
 	int n = acceptRanges.size();
 	std::vector<std::promise<Solution::return_type>> promises;
@@ -765,30 +798,16 @@ int main() {
 	#ifndef DEBUG
 	Solution::read();
 
-	std::vector<double> acceptRanges{1.25, 1.45};
+	double acceptRange = 1.25;
+	std::promise<Solution::return_type> promise;
+	Solution::return_type ans;
+	std::future<Solution::return_type> future(promise.get_future());
+	Solution solution;
+	solution.setAcceptRange(acceptRange);
+	std::thread thread(&Solution::solve, solution, std::ref(promise));
 
-	int n = acceptRanges.size();
-	std::vector<std::promise<Solution::return_type>> promises;
-	std::vector<std::future<Solution::return_type>> futures;
-	std::vector<std::thread> threads;
-	std::vector<Solution> solutions;
-	std::vector<Solution::return_type> ans;
-
-	promises.resize(n);
-	solutions.resize(n);
-	for (int i = 0; i < n; ++i) {
-		futures.emplace_back(promises[i].get_future());
-		solutions[i].setAcceptRange(acceptRanges[i]);
-		threads.emplace_back(std::thread(&Solution::solve, solutions[i], std::ref(promises[i])));
-	}
-
-	for (int i = 0; i < n; ++i) {
-		ans.emplace_back(futures[i].get());
-		threads[i].join();
-	}
-
-	int mnId = std::min_element(ans.cbegin(), ans.cend()) - ans.cbegin();
-	std::cout << std::get<2>(ans[mnId]) << std::endl;
+	ans = future.get();
+	thread.join();
 	#endif
 
 	return 0;

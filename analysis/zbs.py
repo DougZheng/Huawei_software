@@ -11,7 +11,7 @@ powerCost1 = []
 vmCpu1 = []
 vmMemory1 = []
 
-with open("data/training-1.txt", "r") as fin:
+with open("../data/training-1.txt", "r") as fin:
     print("xxx")
     n = int(fin.readline())
     for i in range(n):
@@ -33,7 +33,7 @@ memorySize2 = []
 serverCost2 = []
 powerCost2 = []
 
-with open("data/training-2.txt", "r") as fin:
+with open("../data/training-2.txt", "r") as fin:
     print("yyy")
     n = int(fin.readline())
     for i in range(n):
@@ -45,11 +45,11 @@ with open("data/training-2.txt", "r") as fin:
         powerCost2.append(int(ss[4]))
 
 # plt.figure(figsize = (18, 9))
-plt.title("serverCost vs. powerCost")
-plt.xlabel("serverCost")
+plt.title("cpuCores vs. powerCost")
+plt.xlabel("cpuCores")
 plt.ylabel("powerCost")
-# sns.scatterplot(x = cpuCores1, y = memorySize1)
-sns.scatterplot(x = vmCpu1, y = vmMemory1)
+sns.scatterplot(x = cpuCores1, y = memorySize1)
+sns.scatterplot(x = cpuCores2, y = memorySize2)
 
 plt.show()
 plt.savefig('./pic.png')
