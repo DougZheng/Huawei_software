@@ -209,77 +209,6 @@ private:
 	double levelCoef = 300.0;
 	double acceptRange = 1.5;
 
-	inline double calF1(const ServerInfo &server, int nodeId, int vmCpu, int vmMemory) {
-		int serverCpu = server.cpuCores[nodeId];
-		int serverMemory = server.memorySize[nodeId];
-		if (serverCpu == 0 || serverMemory == 0) {
-			return oo;
-		}
-		double serverK = static_cast<double>(serverCpu) / serverMemory;
-		double vmK = static_cast<double>(vmCpu) / vmMemory;
-		double ratio = std::max(serverK / vmK, vmK / serverK);
-		return levelCoef * std::floor(ratio / acceptRange)
-			+ serverK * (serverCpu - vmCpu) + 1.0 / serverK * (serverMemory - vmMemory);
-	}
-
-	inline double calF2(const ServerInfo &server, int vmCpu, int vmMemory) {
-		int serverCpu = server.cpuCores[0];
-		int serverMemory = server.memorySize[0];
-		if (serverCpu == 0 || serverMemory == 0) {
-			return oo;
-		}
-		double serverK = static_cast<double>(serverCpu) / serverMemory;
-		double vmK = static_cast<double>(vmCpu) / vmMemory;
-		double ratio = std::max(serverK / vmK, vmK / serverK);
-		return levelCoef * std::floor(ratio / acceptRange)
-			+ serverK * (serverCpu - vmCpu) + 1.0 / serverK * (serverMemory - vmMemory);
-	}
-
-	std::pair<int, int> bestFit1(const std::vector<ServerInfo> &servers, 
-		const std::vector<int> &serversHasId, int cpuCores, int memorySize) {
-		double fmn = oo;
-		std::pair<int, int> ret(-1, -1);
-		for (size_t i = 0; i < serversHasId.size(); ++i) {
-			int index = serversHasId[i];
-			if (index == -1) continue;
-			const auto &server = servers[index];
-			double fval0 = calF1(server, 0, cpuCores, memorySize);
-			double fval1 = calF1(server, 1, cpuCores, memorySize);
-			if (server.cpuCores[0] >= cpuCores && server.memorySize[0] >= memorySize
-				&& fval0 + EPS < fmn) {
-				fmn = fval0;
-				ret = std::make_pair(index, 0);
-			}
-			if (server.cpuCores[1] >= cpuCores && server.memorySize[1] >= memorySize
-				&& fval1 + EPS < fmn) {
-				fmn = fval1;
-				ret = std::make_pair(index, 1);
-			}
-		}
-		return ret;
-	}
-
-	std::pair<int, int> bestFit2(const std::vector<ServerInfo> &servers, 
-		const std::vector<int> &serversHasId, int cpuCores, int memorySize) {
-		cpuCores /= 2;
-		memorySize /= 2;
-		double fmn = oo;
-		std::pair<int, int> ret(-1, -1);
-		for (size_t i = 0; i < serversHasId.size(); ++i) {
-			int index = serversHasId[i];
-			if (index == -1) continue;
-			const auto &server = servers[index];
-			double fval = calF2(server, cpuCores, memorySize);
-			if (server.cpuCores[0] >= cpuCores && server.cpuCores[1] >= cpuCores
-				&& server.memorySize[0] >= memorySize && server.memorySize[1] >= memorySize
-				&& fval + EPS < fmn) {
-				ret.first = index;
-				fmn = fval;
-			}
-		}
-		return ret;
-	}
-
 	int selectServerPurchase(const VmInfo &vmInfo) {
 		int cpuCores = vmInfo.isDouble ? vmInfo.cpuCores / 2 : vmInfo.cpuCores;
 		int memorySize = vmInfo.isDouble ? vmInfo.memorySize / 2 : vmInfo.memorySize;
@@ -292,10 +221,25 @@ private:
 		return -1;
 	}
 
+	// inline double calF(const ServerInfo &server, int nodeId, int vmCpu, int vmMemory) {
+	// 	int serverCpu = server.cpuCores[nodeId];
+	// 	int serverMemory = server.memorySize[nodeId];
+	// 	if (serverCpu == 0 || serverMemory == 0) {
+	// 		return oo;
+	// 	}
+	// 	double serverK = static_cast<double>(serverCpu) / serverMemory;
+	// 	double vmK = static_cast<double>(vmCpu) / vmMemory;
+	// 	double ratio = std::max(serverK / vmK, vmK / serverK);
+	// 	return levelCoef * std::floor(ratio / acceptRange)
+	// 		+ serverK * (serverCpu - vmCpu) + 1.0 / serverK * (serverMemory - vmMemory);
+	// }
+
 	std::pair<int, int> selectServerInstall(const VmInfo &vmInfo) {
+		int cpuCores = vmInfo.isDouble ? vmInfo.cpuCores / 2 : vmInfo.cpuCores;
+		int memorySize = vmInfo.isDouble ? vmInfo.memorySize / 2 : vmInfo.memorySize;
 		int lim = vmInfo.isDouble ? 1 : 2;
-		for (int i = vmInfo.cpuCores; i <= CPUN; ++i) {
-			for (int j = vmInfo.memorySize; j <= MEMN; ++j) {
+		for (int i = cpuCores; i <= CPUN; ++i) {
+			for (int j = memorySize; j <= MEMN; ++j) {
 				for (int k = 0; k < lim; ++k) {
 					if (!serversId[vmInfo.isDouble][k][i][j].empty()) {
 						return {serversId[vmInfo.isDouble][k][i][j].front(), vmInfo.isDouble ? -1 : k};
