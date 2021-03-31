@@ -20,6 +20,8 @@
 // #define DEBUG
 #define ON_LINE
 
+#define EPS 1e-3
+
 class Solution {
 
 public:
@@ -52,11 +54,17 @@ public:
 			return is;
 		};
 
+		std::string to_string() const {
+			return "(" + serverType + ", " + std::to_string(cpuCores[0]) + "/" 
+				+ std::to_string(cpuTotal / 2) + "+" + std::to_string(cpuCores[1]) + "/"
+				+ std::to_string(cpuTotal / 2) + ", " + std::to_string(memorySize[0]) + "/"
+				+ std::to_string(memoryTotal / 2) + "+" + std::to_string(memorySize[1]) + "/"
+				+ std::to_string(memoryTotal / 2) + ", " + std::to_string(serverCost) + ", "
+				+ std::to_string(powerCost) + ")";
+		}
+
 		friend std::ostream &operator<<(std::ostream &os, const ServerInfo &serverInfo) {
-			os << "(" << serverInfo.serverType << ", " 
-				<< serverInfo.cpuCores[0] << "+" << serverInfo.cpuCores[1] << ", "
-				<< serverInfo.memorySize[0] << "+" << serverInfo.memorySize[1] << ", "
-				<< serverInfo.serverCost << ", " << serverInfo.powerCost << ")" << std::endl;
+			os << serverInfo.to_string();
 			return os;
 		}
 
@@ -131,7 +139,7 @@ public:
 			double serverK = cpuTotal / (0.05 + memoryTotal);
 			double vmK = (cpuUsed[0] + cpuUsed[1]) / (0.05 + memoryUsed[0] + memoryUsed[1]);
 			double ratio = std::max(serverK / vmK, vmK / serverK);
-			return -(levelCoef * static_cast<int>(ratio / acceptRange));
+			return -(levelCoef * std::floor(ratio / acceptRange));
 		}
 	};
 
@@ -148,10 +156,13 @@ public:
 			return is;
 		}
 
+		std::string to_string() const {
+			return "(" + vmType + ", " + std::to_string(cpuCores) + ", " 
+				+ std::to_string(memorySize) + ", " + std::to_string(isDouble) + ")";
+		}
+
 		friend std::ostream &operator<<(std::ostream &os, const VmInfo &vmInfo) {
-			os << "(" << vmInfo.vmType << ", "
-				<< vmInfo.cpuCores << ", " << vmInfo.memorySize << ", "
-				<< vmInfo.isDouble << ")" << std::endl;
+			os << vmInfo.to_string();
 			return os;
 		}
 
@@ -173,10 +184,13 @@ public:
 			return is;
 		}
 
+		std::string to_string() const { 
+			return "(" + (commandType ? std::string("add") : std::string("del")) + ", "
+				+ (commandType ? vmType + ", " : "") + std::to_string(vmId) + ")";
+		}
+
 		friend std::ostream &operator<<(std::ostream &os, const Command &command) {
-			os << "(" << (command.commandType ? "add" : "del") << ", "
-				<< (command.commandType ? command.vmType + ", " : "")
-				<< command.vmId << ")" << std::endl;
+			os << command.to_string();
 			return os;
 		}
 
@@ -205,6 +219,7 @@ private:
 
 	static int dayNum;
 	static int previewNum;
+	int curDay;
 	int serversUsedNum[2] = {};
 	int vmResNum = 0;
 	int totalMigration = 0;
@@ -227,7 +242,7 @@ private:
 		double serverK = static_cast<double>(serverCpu) / serverMemory;
 		double vmK = static_cast<double>(vmCpu) / vmMemory;
 		double ratio = std::max(serverK / vmK, vmK / serverK);
-		return levelCoef * static_cast<int>(ratio / acceptRange)
+		return levelCoef * std::floor(ratio / acceptRange)
 			+ serverK * (serverCpu - vmCpu) + 1.0 / serverK * (serverMemory - vmMemory);
 	}
 
@@ -240,7 +255,7 @@ private:
 		double serverK = static_cast<double>(serverCpu) / serverMemory;
 		double vmK = static_cast<double>(vmCpu) / vmMemory;
 		double ratio = std::max(serverK / vmK, vmK / serverK);
-		return levelCoef * static_cast<int>(ratio / acceptRange)
+		return levelCoef * std::floor(ratio / acceptRange)
 			+ serverK * (serverCpu - vmCpu) + 1.0 / serverK * (serverMemory - vmMemory);
 	}
 
@@ -255,12 +270,12 @@ private:
 			double fval0 = calF1(server, 0, cpuCores, memorySize);
 			double fval1 = calF1(server, 1, cpuCores, memorySize);
 			if (server.cpuCores[0] >= cpuCores && server.memorySize[0] >= memorySize
-				&& fval0 < fmn) {
+				&& fval0 + EPS < fmn) {
 				fmn = fval0;
 				ret = std::make_pair(index, 0);
 			}
 			if (server.cpuCores[1] >= cpuCores && server.memorySize[1] >= memorySize
-				&& fval1 < fmn) {
+				&& fval1 + EPS < fmn) {
 				fmn = fval1;
 				ret = std::make_pair(index, 1);
 			}
@@ -281,7 +296,7 @@ private:
 			double fval = calF2(server, cpuCores, memorySize);
 			if (server.cpuCores[0] >= cpuCores && server.cpuCores[1] >= cpuCores
 				&& server.memorySize[0] >= memorySize && server.memorySize[1] >= memorySize
-				&& fval < fmn) {
+				&& fval + EPS < fmn) {
 				ret.first = index;
 				fmn = fval;
 			}
@@ -409,13 +424,13 @@ private:
 		};
 
 		
-		std::sort(serversUsedHasId[0].begin(), serversUsedHasId[0].end(), 
+		std::stable_sort(serversUsedHasId[0].begin(), serversUsedHasId[0].end(), 
 			[&](int x, int y) -> bool {
 				return newVmId[0][x].empty() != newVmId[0][y].empty() ? newVmId[0][x].empty() > newVmId[0][y].empty()
 					: serversUsed[0][x].calUsedRatio() < serversUsed[0][y].calUsedRatio();
 			});
 
-		std::sort(serversUsedHasId[1].begin(), serversUsedHasId[1].end(), 
+		std::stable_sort(serversUsedHasId[1].begin(), serversUsedHasId[1].end(), 
 			[&](int x, int y) -> bool {
 				return newVmId[1][x].empty() != newVmId[1][y].empty() ? newVmId[1][x].empty() > newVmId[1][y].empty()
 					: serversUsed[1][x].calUsedRatio() < serversUsed[1][y].calUsedRatio();
@@ -436,8 +451,8 @@ private:
 		std::set<int> failMigrateCnt[2];
 		int migrateStep[2] = {migrateLim, migrateLim};
 		int migrateRound[2] = {0, 0};
-		// int isDouble = std::rand() % 2;
-		int isDouble = 0;
+		int isDouble = std::rand() % 2;
+		// int isDouble = 0;
 
 		int cnt = 0;
 
@@ -587,6 +602,43 @@ private:
 			}
 		}
 
+		auto has = [&](const std::string &s, unsigned long long &h) {
+			const unsigned long long base = 331;
+			for (const auto &ch : s) {
+				h = h * base + ch;
+			}
+		};
+		auto hasAll = [&](unsigned long long &h) {
+			for (const auto &server : serverInfos) {
+				has(server.to_string(), h);
+			}
+			for (const auto &vm : vmInfos) {
+				has(vm.to_string(), h);
+			}
+			for (const auto &cmd : commands) {
+				has(cmd.to_string(), h);
+			}
+		};
+
+		// static unsigned long long fuckHash = 0;
+		// has(outputBuffer, fuckHash); 
+
+		// if (curDay == dayNum - 1) {
+			// std::cerr << "hash: " << fuckHash << std::endl;
+			// unsigned long long h = 0;
+			// hasAll(h);
+			// assert(h == 15076945205182418425ull || h == 11115914098846772032ull);
+			// assert(fuckHash == 7867171164944083644ull || fuckHash == 11733483978821489280ull);
+			// if (h != 15076945205182418425ull && h != 11115914098846772032ull) {
+			// 	while (true);
+			// }
+		// }
+		// 15076945205182418425ull
+		// 11115914098846772032ull
+
+		// 7867171164944083644ull
+		// 11733483978821489280ull
+
 		#ifdef ON_LINE
 		write();
 		#endif
@@ -669,6 +721,8 @@ public:
 
 	void solve(std::promise<return_type> &promiseAns) {
 
+		std::srand(20210331);
+
 		#ifdef ON_LINE
 		std::cin >> dayNum >> previewNum;
 		std::cin.ignore();
@@ -701,17 +755,17 @@ public:
 		std::iota(serverInfosHasId.begin(), serverInfosHasId.end(), 0);
 
 		for (int i = 0; i < dayNum; ++i) {
+			curDay = i;
 			solveOneDay(commands[i]);
 			#ifdef ON_LINE
 			if (previewNum + i < dayNum) {
 				readOneDay(previewNum + i);
 			}
 			#endif
+			// if (i == dayNum - 2 && totalMigration < 40000) {
+			// 	while (true);
+			// }
 		}
-		// if (totalMigration < 45000) {
-		// 	while (true);
-		// }
-		// assert(totalMigration >= 45000);
 		promiseAns.set_value(std::make_tuple(totalCost, totalMigration, outputBuffer));
 	}
 
