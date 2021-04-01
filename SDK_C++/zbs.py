@@ -3,21 +3,20 @@ import pandas as pd
 import matplotlib.pyplot as plt 
 import seaborn as sns 
 
-n = 513
-serverRes = []
-serverUse = []
+ratio1 = []
+ratio2 = []
 
 with open("./bin/tmp.out", "r") as fin:
-    for i in range(n):
-        a = list(map(int, fin.readline().split()))
-        serverRes.append(a)
-    fin.readline()
-    for i in range(n):
-        a = list(map(int, fin.readline().split()))
-        serverUse.append(a)
-serverRes = serverUse
-serverRes = np.array(serverRes)
-sns.heatmap(data = serverRes[:88, :88], vmax = 10)
+    while True:
+        try:
+            r1, r2 = map(float, fin.readline().strip().split())
+            ratio1.append(r1)
+            ratio2.append(r2)
+        except:
+            break
+
+plt.plot(ratio1)
+plt.plot(ratio2)
 
 plt.show()
-plt.savefig('./pic2.png')
+plt.savefig('./2_vm_vs_server.png')
