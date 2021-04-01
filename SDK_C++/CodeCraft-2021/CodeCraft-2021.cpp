@@ -117,6 +117,10 @@ public:
 			double ratio = std::max(serverK / vmK, vmK / serverK);
 			return -(levelCoef * std::floor(ratio / acceptRange));
 		}
+
+		bool isEmpty(int nodeId = 0) const {
+			return cpuUsed[nodeId] == 0 && memoryUsed[nodeId] == 0;
+		}
 	};
 
 	struct VmInfo {
@@ -189,9 +193,11 @@ private:
 
 	std::unordered_map<int, int> vmIdToIndex;
 	std::unordered_map<int, std::vector<int>> installId;
-	std::vector<std::list<int>> serverIndexToVmId[2];
+	std::vector<std::list<int>> serverIndexToVmId[2][2];
 
-	std::vector<std::vector<std::list<int>>> serversId[2][2];
+	std::vector<std::vector<std::list<int>>> serversIdRes[2][2];
+	std::vector<std::vector<std::list<int>>> serversIdUse[2][2];
+	std::vector<int> banned[2];
 
 	static int dayNum;
 	static int previewNum;
@@ -221,45 +227,56 @@ private:
 		return -1;
 	}
 
-	// inline double calF(const ServerInfo &server, int nodeId, int vmCpu, int vmMemory) {
-	// 	int serverCpu = server.cpuCores[nodeId];
-	// 	int serverMemory = server.memorySize[nodeId];
-	// 	if (serverCpu == 0 || serverMemory == 0) {
-	// 		return oo;
-	// 	}
-	// 	double serverK = static_cast<double>(serverCpu) / serverMemory;
-	// 	double vmK = static_cast<double>(vmCpu) / vmMemory;
-	// 	double ratio = std::max(serverK / vmK, vmK / serverK);
-	// 	return levelCoef * std::floor(ratio / acceptRange)
-	// 		+ serverK * (serverCpu - vmCpu) + 1.0 / serverK * (serverMemory - vmMemory);
-	// }
+	inline double calF(const ServerInfo &server, int nodeId, int vmCpu, int vmMemory) {
+		int serverCpu = server.cpuCores[nodeId];
+		int serverMemory = server.memorySize[nodeId];
+		if (serverCpu == 0 || serverMemory == 0) {
+			return oo;
+		}
+		double serverK = static_cast<double>(serverCpu) / serverMemory;
+		double vmK = static_cast<double>(vmCpu) / vmMemory;
+		double ratio = std::max(serverK / vmK, vmK / serverK);
+		return levelCoef * std::floor(ratio / acceptRange)
+			+ serverK * (serverCpu - vmCpu) + 1.0 / serverK * (serverMemory - vmMemory);
+	}
 
 	std::pair<int, int> selectServerInstall(const VmInfo &vmInfo) {
 		int cpuCores = vmInfo.isDouble ? vmInfo.cpuCores / 2 : vmInfo.cpuCores;
 		int memorySize = vmInfo.isDouble ? vmInfo.memorySize / 2 : vmInfo.memorySize;
 		int lim = vmInfo.isDouble ? 1 : 2;
-		for (int i = cpuCores; i <= CPUN; ++i) {
-			for (int j = memorySize; j <= MEMN; ++j) {
-				for (int k = 0; k < lim; ++k) {
-					if (!serversId[vmInfo.isDouble][k][i][j].empty()) {
-						return {serversId[vmInfo.isDouble][k][i][j].front(), vmInfo.isDouble ? -1 : k};
+		std::pair<int, int> ret{-1, -1};
+		auto searchServer = [&](int cpuBase, int cpuLim, int memBase, int memLim) -> std::pair<int, int> {
+			cpuLim = std::min(cpuLim, CPUN);
+			memLim = std::min(memLim, MEMN);
+			for (int i = cpuBase; i <= cpuLim; ++i) {
+				for (int j = memBase; j <= memLim; ++j) {
+					for (int k = 0; k < lim; ++k) {
+						for (const auto &idx : serversIdRes[vmInfo.isDouble][k][i][j]) {
+							return {idx, vmInfo.isDouble ? -1 : k};
+						}
 					}
 				}
 			}
-		}
-		return {-1, -1};
+			return {-1, -1};
+		};
+		return searchServer(cpuCores, CPUN, memorySize, MEMN);
+		// for (int i = cpuCores; i <= CPUN; ++i) {
+		// 	for (int j = memorySize; j <= MEMN; ++j) {
+		// 		for (int k = 0; k < lim; ++k) {
+		// 			for (const auto &idx : serversIdRes[vmInfo.isDouble][k][i][j]) {
+		// 				if (banned[vmInfo.isDouble][idx]) continue;
+		// 				return {idx, vmInfo.isDouble ? -1 : k};
+		// 			}
+		// 		}
+		// 	}
+		// }
+	}
+
+	inline int getNodeId(int nodeId) {
+		return nodeId != -1 ? nodeId : 0;
 	}
 
 	void solveOneDay(const std::vector<Command> &commands) {
-
-		// std::function<std::pair<int, int>
-		// 	(const std::vector<ServerInfo>&, const std::vector<int>&, int, int)> policys[2] = 
-		// {
-		// 	std::bind(&Solution::bestFit1, this, std::placeholders::_1, 
-		// 		std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), 
-		// 	std::bind(&Solution::bestFit2, this, std::placeholders::_1, 
-		// 		std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)
-		// };
 
 		std::map<int, int> buyCnt;
 		std::vector<std::vector<int>> ansId;
@@ -271,74 +288,161 @@ private:
 			std::vector<int> insId{vmInfo.isDouble, 
 				int(serversUsed[vmInfo.isDouble].size()), vmInfo.isDouble ? -1 : 0};
 			serversUsed[insId[0]].emplace_back(serverInfos[buyId]);
-			serverIndexToVmId[insId[0]].emplace_back();
+			serverIndexToVmId[insId[0]][0].emplace_back();
 			auto &server = serversUsed[insId[0]].back();
 			server.serverId = buyId;
-			serversId[insId[0]][0][server.cpuCores[0]][server.memorySize[0]].push_front(insId[1]);
+			serversIdRes[insId[0]][0][server.cpuCores[0]][server.memorySize[0]].push_front(insId[1]);
+			serversIdUse[insId[0]][0][server.cpuUsed[0]][server.memoryUsed[0]].push_front(insId[1]);
 			if (!vmInfo.isDouble) {
-				serversId[insId[0]][1][server.cpuCores[1]][server.memorySize[1]].push_front(insId[1]);
+				serverIndexToVmId[insId[0]][1].emplace_back();
+				serversIdRes[insId[0]][1][server.cpuCores[1]][server.memorySize[1]].push_front(insId[1]);
+				serversIdUse[insId[0]][1][server.cpuUsed[1]][server.memoryUsed[1]].push_front(insId[1]);
 			}
+			banned[vmInfo.isDouble].emplace_back(0);
 			return insId;
 		};
 
 		auto install = [&](ServerInfo &server, const std::vector<int> &insId, const VmInfo &vmInfo) {
-			int nodeId = insId[2] != -1 ? insId[2] : 0;
-			auto &serId = serversId[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]];
-			serId.erase(std::find(serId.begin(), serId.end(), insId[1]));
+			int nodeId = getNodeId(insId[2]);
+			auto &serIdRes = serversIdRes[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]];
+			serIdRes.erase(std::find(serIdRes.begin(), serIdRes.end(), insId[1]));
+			auto &serIdUse = serversIdUse[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]];
+			serIdUse.erase(std::find(serIdUse.begin(), serIdUse.end(), insId[1]));
 			server.install(insId[2], vmInfo.cpuCores, vmInfo.memorySize);
-			serversId[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]].push_front(insId[1]);
+			serversIdRes[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]].push_front(insId[1]);
+			serversIdUse[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]].push_front(insId[1]);
 		};
 
-		auto uninstall = [&](ServerInfo &server, std::vector<int> &insId, const VmInfo &vmInfo) {
-			int nodeId = insId[2] != -1 ? insId[2] : 0;
-			auto &serId = serversId[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]];
-			serId.erase(std::find(serId.begin(), serId.end(), insId[1]));
+		auto uninstall = [&](ServerInfo &server, const std::vector<int> &insId, const VmInfo &vmInfo) {
+			int nodeId = getNodeId(insId[2]);
+			auto &serIdRes = serversIdRes[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]];
+			serIdRes.erase(std::find(serIdRes.begin(), serIdRes.end(), insId[1]));
+			auto &serIdUse = serversIdUse[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]];
+			serIdUse.erase(std::find(serIdUse.begin(), serIdUse.end(), insId[1]));
 			server.uninstall(insId[2], vmInfo.cpuCores, vmInfo.memorySize);
-			serversId[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]].push_front(insId[1]);
+			serversIdRes[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]].push_front(insId[1]);
+			serversIdUse[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]].push_front(insId[1]);
+		};
+
+		std::set<std::vector<int>> serverMigrated;
+		auto selectServerMigrate = [&](const std::vector<int> &fromId, int cpuBase, int cpuLim, int memBase, int memLim) -> std::vector<int> {
+			cpuLim = std::min(cpuLim, CPUN);
+			memLim = std::min(memLim, MEMN);
+			for (int i = cpuBase; i <= cpuLim; ++i) {
+				for (int j = memBase; j <= memLim; ++j) {
+					int lim = fromId[0] ? 1 : 2;
+					for (int nodeId = 0; nodeId < lim; ++nodeId) {
+						for (const auto &idx : serversIdRes[fromId[0]][nodeId][i][j]) {
+							if (serversUsed[fromId[0]][idx].isEmpty(nodeId)) continue; 
+							std::vector<int> toId{fromId[0], idx, fromId[0] ? -1 : nodeId};
+							if (fromId == toId || serverMigrated.count(toId)) continue;
+							return toId;
+						}
+					}
+				}
+			}
+			return {-1, -1, -1};
 		};
 
 		struct MigrateRecord {
-			int vmId;
-			std::vector<int> fromId, toId;
+			std::vector<int> fromId;
+			std::vector<int> toId;
 		};
+		std::vector<MigrateRecord> migrateRecords;
 
-		std::stack<MigrateRecord> migrateRecords;
-
-		auto doMigrate = [&](int vmId, std::vector<int> fromId, std::vector<int> toId) {
-			migrateRecords.push({vmId, fromId, toId});
-			const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
-			installId[vmId] = toId;
-			uninstall(serversUsed[fromId[0]][fromId[1]], fromId, vmInfo);
-			install(serversUsed[toId[0]][toId[1]], toId, vmInfo);
-		};
-
-		auto undoMigrate = [&]() {
-			auto migrateRecord = migrateRecords.top();
-			migrateRecords.pop();
-			int vmId = migrateRecord.vmId;
-			const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
-			auto fromId = migrateRecord.fromId;
-			auto toId = migrateRecord.toId;
-			installId[vmId] = fromId;
-			install(serversUsed[fromId[0]][fromId[1]], fromId, vmInfo);
-			uninstall(serversUsed[toId[0]][toId[1]], toId, vmInfo);
-		};
-
-		auto rollbackMigrate = [&](size_t tim) {
-			while (migrateRecords.size() > tim) {
-				undoMigrate();
+		int migrateLim = vmResNum * 3 / 100;
+		
+		for (int i = 0; i <= CPUN; ++i) {
+			for (int j = 0; j <= MEMN; ++j) {
+				if (i == 0 && j == 0) continue;
+				for (int isDouble = 0; isDouble < 2; ++isDouble) {
+					int lim = isDouble ? 1 : 2;
+					for (int nodeId = 0; nodeId < lim; ++nodeId) {
+						for (const auto &idx : serversIdUse[isDouble][nodeId][i][j]) {
+							std::vector<int> fromId{isDouble, idx, isDouble ? -1 : nodeId};
+							if (serverMigrated.count(fromId)) continue;
+							auto toId = selectServerMigrate(fromId, i, i + 10, j, j + 10);
+							if (toId[0] == -1) break;
+							migrateRecords.push_back({fromId, toId});
+							serverMigrated.emplace(fromId);
+							serverMigrated.emplace(toId);
+						}
+					}
+				}
 			}
+		}
+
+		auto doMigrate = [&](const std::vector<int> &fromId, const std::vector<int> &toId) {
+			int nodeId = getNodeId(fromId[2]);
+			for (const auto &vmId : serverIndexToVmId[fromId[0]][nodeId][fromId[1]]) {
+				const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+				uninstall(serversUsed[fromId[0]][fromId[1]], fromId, vmInfo);
+				install(serversUsed[toId[0]][toId[1]], toId, vmInfo);
+				ansMigrate.push_back({vmId, toId[0], toId[1], toId[2]});
+				serverIndexToVmId[toId[0]][getNodeId(toId[2])][toId[1]].emplace_back(vmId);
+				installId[vmId] = toId;
+			}
+			serverIndexToVmId[fromId[0]][nodeId][fromId[1]].clear();
 		};
 
-		// std::stable_sort(serversUsedHasId[0].begin(), serversUsedHasId[0].end(), 
-		// 	[&](int x, int y) -> bool {
-		// 		return serversUsed[0][x].calUsedRatio() < serversUsed[0][y].calUsedRatio();
-		// 	});
+		for (const auto &record : migrateRecords) {
+			int nodeId = getNodeId(record.fromId[2]);
+			int migrateNum = serverIndexToVmId[record.fromId[0]][nodeId][record.fromId[1]].size();
+			if (migrateNum > migrateLim) continue;
+			migrateLim -= migrateNum;
+			totalMigration += migrateNum;
+			doMigrate(record.fromId, record.toId);
+		}
 
-		// std::stable_sort(serversUsedHasId[1].begin(), serversUsedHasId[1].end(), 
-		// 	[&](int x, int y) -> bool {
-		// 		return serversUsed[1][x].calUsedRatio() < serversUsed[1][y].calUsedRatio();
-		// 	});
+		for (size_t i = 0; i < serversUsed[0].size(); ++i) {
+			const auto &server = serversUsed[0][i];
+			for (int j = 0; j < 2; ++j) {
+				auto &serIdRes = serversIdRes[0][j][server.cpuCores[j]][server.memorySize[j]];
+				assert(std::find(serIdRes.begin(), serIdRes.end(), i) != serIdRes.end());
+				auto &serIdUse = serversIdUse[0][j][server.cpuUsed[j]][server.memoryUsed[j]];
+				assert(std::find(serIdUse.begin(), serIdUse.end(), i) != serIdUse.end());
+			}
+		}
+		for (size_t i = 0; i < serversUsed[1].size(); ++i) {
+			const auto &server = serversUsed[1][i];
+			auto &serIdRes = serversIdRes[1][0][server.cpuCores[0]][server.memorySize[0]];
+			assert(std::find(serIdRes.begin(), serIdRes.end(), i) != serIdRes.end());
+			auto &serIdUse = serversIdUse[1][0][server.cpuUsed[0]][server.memoryUsed[0]];
+			assert(std::find(serIdUse.begin(), serIdUse.end(), i) != serIdUse.end());
+		}
+
+		// struct MigrateRecord {
+		// 	int vmId;
+		// 	std::vector<int> fromId, toId;
+		// };
+
+		// std::stack<MigrateRecord> migrateRecords;
+
+		// auto doMigrate = [&](int vmId, std::vector<int> fromId, std::vector<int> toId) {
+		// 	migrateRecords.push({vmId, fromId, toId});
+		// 	const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+		// 	installId[vmId] = toId;
+		// 	uninstall(serversUsed[fromId[0]][fromId[1]], fromId, vmInfo);
+		// 	install(serversUsed[toId[0]][toId[1]], toId, vmInfo);
+		// };
+
+		// auto undoMigrate = [&]() {
+		// 	auto migrateRecord = migrateRecords.top();
+		// 	migrateRecords.pop();
+		// 	int vmId = migrateRecord.vmId;
+		// 	const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+		// 	auto fromId = migrateRecord.fromId;
+		// 	auto toId = migrateRecord.toId;
+		// 	installId[vmId] = fromId;
+		// 	install(serversUsed[fromId[0]][fromId[1]], fromId, vmInfo);
+		// 	uninstall(serversUsed[toId[0]][toId[1]], toId, vmInfo);
+		// };
+
+		// auto rollbackMigrate = [&](size_t tim) {
+		// 	while (migrateRecords.size() > tim) {
+		// 		undoMigrate();
+		// 	}
+		// };
 
 		// int migrateLim = 3 * vmResNum / 100;
 
@@ -349,9 +453,6 @@ private:
 		// int isDouble = std::rand() % 2;
 
 		// int cnt = 0;
-		// std::vector<int> banned[2];
-		// banned[0].resize(serversUsed[0].size());
-		// banned[1].resize(serversUsed[1].size());
 
 		// while (migrateLim > 0 && (migrateStep[0] + migrateStep[1]) > 0) {
 		// 	if (++cnt == 2) break;
@@ -426,12 +527,17 @@ private:
 
 		// 	isDouble ^= 1;
 		// }
+		// for (int isDouble = 0; isDouble < 2; ++isDouble) {
+		// 	for (const auto &idx : successMigrate[isDouble]) {
+		// 		banned[isDouble][idx] = 0;
+		// 	}
+		// }
 		// // std::cerr << std::endl;
 
 		auto printRes = [&]() {
 			for (int i = 0; i <= CPUN; ++i) {
 				for (int j = 0; j <= MEMN; ++j) {
-					std::cerr << serversId[1][0][i][j].size() << " \n"[j == MEMN];
+					std::cerr << serversIdRes[1][0][i][j].size() << " \n"[j == MEMN];
 				}
 			}
 			std::cerr << std::endl;
@@ -441,7 +547,7 @@ private:
 			std::vector<std::vector<int>> tp(CPUN + 1, std::vector<int>(MEMN + 1));
 			for (int i = 0; i <= CPUN; ++i) {
 				for (int j = 0; j <= MEMN; ++j) {
-					for (auto &idx : serversId[1][0][i][j]) {
+					for (auto &idx : serversIdRes[1][0][i][j]) {
 						auto &server = serversUsed[1][idx];
 						++tp[server.cpuUsed[0]][server.memoryUsed[0]];
 					}
@@ -482,7 +588,7 @@ private:
 					insId = newServer(vmInfo);
 				}
 				install(serversUsed[insId[0]][insId[1]], insId, vmInfo);
-				serverIndexToVmId[insId[0]][insId[1]].emplace_back(command.vmId);
+				serverIndexToVmId[insId[0]][getNodeId(insId[2])][insId[1]].emplace_back(command.vmId);
 
 				installId[command.vmId] = insId;
 				ansId.push_back(insId);
@@ -497,9 +603,8 @@ private:
 				const auto &vmInfo = vmInfos[vmIdToIndex[command.vmId]];
 				uninstall(serversUsed[insId[0]][insId[1]], insId, vmInfo);
 
-				serverIndexToVmId[insId[0]][insId[1]].erase(
-					std::find(serverIndexToVmId[insId[0]][insId[1]].begin(), 
-					serverIndexToVmId[insId[0]][insId[1]].end(), command.vmId));
+				auto &serIds = serverIndexToVmId[insId[0]][getNodeId(insId[2])][insId[1]];
+				serIds.erase(std::find(serIds.begin(), serIds.end(), command.vmId));
 			}
 		}
 
@@ -509,7 +614,11 @@ private:
 
 		for (size_t i = 0; i < 2; ++i) {
 			for (size_t j = 0; j < serversUsed[i].size(); ++j) {
-				if (serverIndexToVmId[i][j].empty()) continue;
+				int cnt = serverIndexToVmId[i][0][j].size();
+				if (i == 0) {
+					cnt += serverIndexToVmId[i][1][j].size();
+				}
+				if (cnt == 0) continue;
 				totalCost += serversUsed[i][j].powerCost;
 			}
 		}
@@ -673,8 +782,9 @@ public:
 		serversUsed[1].clear();
 		vmIdToIndex.clear();
 		installId.clear();
-		serverIndexToVmId[0].clear();
-		serverIndexToVmId[1].clear();
+		serverIndexToVmId[0][0].clear();
+		serverIndexToVmId[0][1].clear();
+		serverIndexToVmId[1][0].clear();
 		serversUsedNum[0] = 0;
 		serversUsedNum[1] = 0;
 		vmResNum = 0;
@@ -686,8 +796,12 @@ public:
 		for (size_t i = 0; i < 2; ++i) {
 			for (size_t j = 0; j < 2; ++j) {
 				if (i == 1 && j == 1) break;
-				serversId[i][j].resize(CPUN + 1);
-				for (auto &serId : serversId[i][j]) {
+				serversIdRes[i][j].resize(CPUN + 1);
+				serversIdUse[i][j].resize(CPUN + 1);
+				for (auto &serId : serversIdRes[i][j]) {
+					serId.resize(MEMN + 1);
+				}
+				for (auto &serId : serversIdUse[i][j]) {
 					serId.resize(MEMN + 1);
 				}
 			}
