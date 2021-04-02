@@ -259,7 +259,7 @@ private:
 		double costPerCpuRes = (server.serverCost + (dayNum - curDay + 1) * server.powerCost) 
 			/ (equCpu[0] + equCpu[1]);
 
-		double weightAll = 0.50;
+		double weightAll = 0.80;
 
 		return costPerCpuAll * weightAll + costPerCpuRes * (1.0 - weightAll);
 	}
@@ -402,7 +402,7 @@ private:
 		// };
 		// std::vector<MigrateRecord> migrateRecords;
 
-		int migrateLim = vmResNum * 0 / 100;
+		int migrateLim = vmResNum * 3 / 100;
 
 		decltype(serversIdRes) serversIdResBak;
 		decltype(serversIdUse) serversIdUseBak;
@@ -529,11 +529,10 @@ private:
 						auto tmpIt = it++;
 						removeServer(fromId);
 						
-						std::cerr << "start\n";
-						std::cerr << (fromId[0] ? "2" : fromId[2] ? "B" : "A") << ": " << serversUsed[fromId[0]][fromId[1]] 
-							<< " -> " << (toId[0] ? "2" : toId[2] ? "B" : "A") << ": " << serversUsed[toId[0]][toId[1]] << "\n";
+						// std::cerr << (fromId[0] ? "2" : fromId[2] ? "B" : "A") << ": " << serversUsed[fromId[0]][fromId[1]] 
+						// 	<< " -> " << (toId[0] ? "2" : toId[2] ? "B" : "A") << ": " << serversUsed[toId[0]][toId[1]] << "\n";
+						// std::cerr << std::endl;
 						doMigrate(fromId, toId);
-						std::cerr << "finish\n" << std::endl;
 					}
 				}
 			}
@@ -598,6 +597,8 @@ private:
 			assert(std::find(serIdUse.begin(), serIdUse.end(), i) != serIdUse.end());
 		}
 
+		int newBuyCnt = 0;
+
 		for (const auto &command : commands) {
 
 			if (command.commandType) { // add
@@ -611,6 +612,7 @@ private:
 
 				if (selId.first == -1) {
 					insId = newServer(vmInfo);
+					++newBuyCnt;
 				}
 				install(serversUsed[insId[0]][insId[1]], insId, vmInfo);
 				serverIndexToVmId[insId[0]][getNodeId(insId[2])][insId[1]].emplace_back(command.vmId);
@@ -638,6 +640,18 @@ private:
 				vmMemSum -= vmInfo.memorySize;
 			}
 		}
+
+		// auto calEmptyNum = [&]() -> int {
+		// 	int cnt = 0;
+		// 	for (int i = 0; i < 2; ++i) {
+		// 		for (auto &server : serversUsed[i]) {
+		// 			cnt += server.isEmpty(0) && server.isEmpty(1);
+		// 		}
+		// 	}
+		// 	return cnt;
+		// };
+
+		// std::cerr << newBuyCnt << " / " << calEmptyNum() << std::endl;
 
 		auto calRatio = [&]() -> std::pair<double, double> {
 			double vmCpuSum = 0, vmMemSum = 0;
@@ -716,15 +730,15 @@ private:
 			}
 		}
 
-		if (curDay == dayNum - 1) {
-			for (auto &server: serversUsed[0]) {
-				std::cerr << server << std::endl;
-			}
-			std::cerr << std::string(80, '-') << std::endl;
-			for (auto &server : serversUsed[1]) {
-				std::cerr << server << std::endl;
-			}
-		}
+		// if (curDay == 652) {
+		// 	for (auto &server: serversUsed[0]) {
+		// 		std::cerr << server << std::endl;
+		// 	}
+		// 	std::cerr << std::string(80, '-') << std::endl;
+		// 	for (auto &server : serversUsed[1]) {
+		// 		std::cerr << server << std::endl;
+		// 	}
+		// }
 		
 		#ifdef ON_LINE
 		write();
@@ -849,6 +863,11 @@ public:
 				}
 			}
 		}
+
+		std::sort(serverInfos.begin(), serverInfos.end(), 
+			[](const ServerInfo &a, const ServerInfo &b) {
+				return a.powerCost < b.powerCost;
+			});
 
 		for (int i = 0; i < dayNum; ++i) {
 			curDay = i;
