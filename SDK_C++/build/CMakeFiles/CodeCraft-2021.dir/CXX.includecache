@@ -31,6 +31,8 @@ stack
 -
 list
 -
+queue
+-
 ctime
 -
 random
@@ -44,5 +46,7 @@ cassert
 thread
 -
 future
+-
+bitset
 -
 
