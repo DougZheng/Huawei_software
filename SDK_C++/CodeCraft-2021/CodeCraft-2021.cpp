@@ -123,6 +123,11 @@ public:
 		bool isEmpty(int nodeId = 0) const {
 			return cpuUsed[nodeId] == 0 && memoryUsed[nodeId] == 0;
 		}
+
+		bool isNearlyFull() const {
+			return (cpuUsed[0] + cpuUsed[1]) >= cpuTotal * 0.9
+				&& (memoryUsed[0] + memoryUsed[1]) >= memoryTotal * 0.9;
+		}
 	};
 
 	struct VmInfo {
@@ -200,6 +205,9 @@ private:
 	std::vector<std::vector<std::list<int>>> serversIdRes[2][2];
 	std::vector<std::vector<std::list<int>>> serversIdUse[2][2];
 	std::vector<int> banned[2];
+	std::vector<int> vmList;
+
+	int lastMigrateIndex = -1;
 
 	static int dayNum;
 	static int previewNum;
@@ -294,6 +302,7 @@ private:
 				for (int j = memBase; j <= memLim; ++j) {
 					for (int k = 0; k < lim; ++k) {
 						for (const auto &idx : serversIdRes[vmInfo.isDouble][k][i][j]) {
+							if (banned[vmInfo.isDouble][idx]) continue;
 							return {idx, vmInfo.isDouble ? -1 : k};
 						}
 					}
@@ -354,8 +363,10 @@ private:
 			return insId;
 		};
 
-		auto install = [&](ServerInfo &server, const std::vector<int> &insId, const VmInfo &vmInfo) {
+		auto install = [&](const std::vector<int> &insId, int vmId) {
 			int nodeId = getNodeId(insId[2]);
+			auto &server = serversUsed[insId[0]][insId[1]];
+			const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
 			auto &serIdRes = serversIdRes[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]];
 			serIdRes.erase(std::find(serIdRes.begin(), serIdRes.end(), insId[1]));
 			auto &serIdUse = serversIdUse[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]];
@@ -363,10 +374,16 @@ private:
 			server.install(insId[2], vmInfo.cpuCores, vmInfo.memorySize);
 			serversIdRes[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]].push_front(insId[1]);
 			serversIdUse[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]].push_front(insId[1]);
+			serverIndexToVmId[insId[0]][nodeId][insId[1]].emplace_back(vmId);
+			installId[vmId] = insId;
+			vmCpuSum += vmInfo.cpuCores;
+			vmMemSum += vmInfo.memorySize;
 		};
 
-		auto uninstall = [&](ServerInfo &server, const std::vector<int> &insId, const VmInfo &vmInfo) {
+		auto uninstall = [&](const std::vector<int> &insId, int vmId) {
 			int nodeId = getNodeId(insId[2]);
+			auto &server = serversUsed[insId[0]][insId[1]];
+			const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
 			auto &serIdRes = serversIdRes[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]];
 			serIdRes.erase(std::find(serIdRes.begin(), serIdRes.end(), insId[1]));
 			auto &serIdUse = serversIdUse[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]];
@@ -374,20 +391,81 @@ private:
 			server.uninstall(insId[2], vmInfo.cpuCores, vmInfo.memorySize);
 			serversIdRes[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]].push_front(insId[1]);
 			serversIdUse[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]].push_front(insId[1]);
+			auto &serIds = serverIndexToVmId[insId[0]][nodeId][insId[1]];
+			serIds.erase(std::find(serIds.begin(), serIds.end(), vmId));
+			installId.erase(vmId);
+			vmCpuSum -= vmInfo.cpuCores;
+			vmMemSum -= vmInfo.memorySize;
 		};
 
-		// std::set<std::vector<int>> serverMigrated;
-		// auto selectServerMigrate = [&](const std::vector<int> &fromId, int cpuBase, int cpuLim, int memBase, int memLim) -> std::vector<int> {
-		// 	cpuLim = std::min(cpuLim, CPUN);
-		// 	memLim = std::min(memLim, MEMN);
+		// int migrateLim = vmResNum * 3 / 100;
+
+		// decltype(serversIdRes) serversIdResBak;
+		// decltype(serversIdUse) serversIdUseBak;
+		// for (int i = 0; i < 2; ++i) {
+		// 	for (int j = 0; j < 2; ++j) {
+		// 		serversIdResBak[i][j] = serversIdRes[i][j];
+		// 		serversIdUseBak[i][j] = serversIdUse[i][j];
+		// 	}
+		// }
+
+		// double vmRatio = static_cast<double>(vmCpuSum) / vmMemSum + EPS;
+		// int memFragSize = 5;
+		// int cpuFragSize = vmRatio * memFragSize;
+
+		// struct Node {
+		// 	int cpu;
+		// 	int mem;
+		// 	double prior;
+		// 	bool operator < (const Node &o) const {
+		// 		return prior > o.prior;
+		// 	}
+		// };
+		// std::vector<Node> cpuMemPairs;
+
+		// auto calMigratePrior = [&](int cpu, int mem) -> double {
+		// 	double serverRatio = static_cast<double>(cpu) / mem + EPS;
+		// 	double prior = std::max(serverRatio / vmRatio, vmRatio / serverRatio);
+		// 	return prior;
+		// };
+		// for (int i = 0; i <= CPUN; ++i) {
+		// 	for (int j = 0; j <= MEMN; ++j) {
+		// 		if (!serversIdResBak[1][0][i][j].empty()) {
+		// 			cpuMemPairs.push_back({i, j, calMigratePrior(i, j)});
+		// 		} 
+		// 	}
+		// }
+		// std::sort(cpuMemPairs.begin(), cpuMemPairs.end()); 
+
+		// auto removeServer = [&](const std::vector<int> &insId) {
+		// 	int nodeId = getNodeId(insId[2]);
+		// 	const auto &server = serversUsed[insId[0]][insId[1]];
+		// 	auto &serIdRes = serversIdResBak[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]];
+		// 	serIdRes.erase(std::find(serIdRes.begin(), serIdRes.end(), insId[1]));
+		// 	auto &serIdUse = serversIdUseBak[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]];
+		// 	serIdUse.erase(std::find(serIdUse.begin(), serIdUse.end(), insId[1]));
+		// };
+
+		// auto searchSeverMigrate = [&](const std::vector<int> &fromId, 
+		// 	int cpuBase, int cpuStep, int cpuUsedBase, int memUsedBase) -> std::vector<int> {
+		// 	int cpuLim = std::min(cpuBase + cpuStep - 1, CPUN);
 		// 	for (int i = cpuBase; i <= cpuLim; ++i) {
-		// 		for (int j = memBase; j <= memLim; ++j) {
+		// 		int memDown = (vmMemSum * 1ll * (i - cpuUsedBase - cpuFragSize) + vmCpuSum - 1) / vmCpuSum + memUsedBase;
+		// 		int memUp = vmMemSum * 1ll * (i - cpuUsedBase) / vmCpuSum + memFragSize + memUsedBase;
+		// 		memDown = std::max(memDown, memUsedBase);
+		// 		memUp = std::min(memUp, MEMN);
+		// 		for (int j = memDown; j <= memUp; ++j) {
 		// 			int lim = fromId[0] ? 1 : 2;
 		// 			for (int nodeId = 0; nodeId < lim; ++nodeId) {
-		// 				for (const auto &idx : serversIdRes[fromId[0]][nodeId][i][j]) {
-		// 					if (serversUsed[fromId[0]][idx].isEmpty(nodeId)) continue; 
-		// 					std::vector<int> toId{fromId[0], idx, fromId[0] ? -1 : nodeId};
-		// 					if (fromId == toId || serverMigrated.count(toId)) continue;
+		// 				auto &serIds = serversIdResBak[fromId[0]][nodeId][i][j];
+		// 				auto it = serIds.begin();
+		// 				while (it != serIds.end()) {
+		// 					std::vector<int> toId{fromId[0], *it, fromId[0] ? -1 : nodeId};
+		// 					if (toId == fromId || serversUsed[toId[0]][toId[1]].isEmpty(nodeId)) {
+		// 						++it;
+		// 						continue;
+		// 					}
+		// 					removeServer(toId);
 		// 					return toId;
 		// 				}
 		// 			}
@@ -396,167 +474,21 @@ private:
 		// 	return {-1, -1, -1};
 		// };
 
-		// struct MigrateRecord {
-		// 	std::vector<int> fromId;
-		// 	std::vector<int> toId;
-		// };
-		// std::vector<MigrateRecord> migrateRecords;
-
-		int migrateLim = vmResNum * 3 / 100;
-
-		decltype(serversIdRes) serversIdResBak;
-		decltype(serversIdUse) serversIdUseBak;
-		for (int i = 0; i < 2; ++i) {
-			for (int j = 0; j < 2; ++j) {
-				serversIdResBak[i][j] = serversIdRes[i][j];
-				serversIdUseBak[i][j] = serversIdUse[i][j];
-			}
-		}
-
-		double vmRatio = static_cast<double>(vmCpuSum) / vmMemSum + EPS;
-		int memFragSize = 5;
-		int cpuFragSize = vmRatio * memFragSize;
-
-		struct Node {
-			int cpu;
-			int mem;
-			double prior;
-			bool operator < (const Node &o) const {
-				return prior > o.prior;
-			}
-		};
-		std::vector<Node> cpuMemPairs;
-
-		auto calMigratePrior = [&](int cpu, int mem) -> double {
-			double serverRatio = static_cast<double>(cpu) / mem + EPS;
-			double prior = std::max(serverRatio / vmRatio, vmRatio / serverRatio);
-			return prior;
-		};
-		for (int i = 0; i <= CPUN; ++i) {
-			for (int j = 0; j <= MEMN; ++j) {
-				if (!serversIdResBak[1][0][i][j].empty()) {
-					cpuMemPairs.push_back({i, j, calMigratePrior(i, j)});
-				} 
-			}
-		}
-		std::sort(cpuMemPairs.begin(), cpuMemPairs.end()); 
-
-		auto removeServer = [&](const std::vector<int> &insId) {
-			int nodeId = getNodeId(insId[2]);
-			const auto &server = serversUsed[insId[0]][insId[1]];
-			auto &serIdRes = serversIdResBak[insId[0]][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]];
-			serIdRes.erase(std::find(serIdRes.begin(), serIdRes.end(), insId[1]));
-			auto &serIdUse = serversIdUseBak[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]];
-			serIdUse.erase(std::find(serIdUse.begin(), serIdUse.end(), insId[1]));
-		};
-
-		auto searchSeverMigrate = [&](const std::vector<int> &fromId, 
-			int cpuBase, int cpuStep, int cpuUsedBase, int memUsedBase) -> std::vector<int> {
-			int cpuLim = std::min(cpuBase + cpuStep - 1, CPUN);
-			for (int i = cpuBase; i <= cpuLim; ++i) {
-				int memDown = (vmMemSum * 1ll * (i - cpuUsedBase - cpuFragSize) + vmCpuSum - 1) / vmCpuSum + memUsedBase;
-				int memUp = vmMemSum * 1ll * (i - cpuUsedBase) / vmCpuSum + memFragSize + memUsedBase;
-				memDown = std::max(memDown, memUsedBase);
-				memUp = std::min(memUp, MEMN);
-				for (int j = memDown; j <= memUp; ++j) {
-					int lim = fromId[0] ? 1 : 2;
-					for (int nodeId = 0; nodeId < lim; ++nodeId) {
-						auto &serIds = serversIdResBak[fromId[0]][nodeId][i][j];
-						auto it = serIds.begin();
-						while (it != serIds.end()) {
-							std::vector<int> toId{fromId[0], *it, fromId[0] ? -1 : nodeId};
-							if (toId == fromId || serversUsed[toId[0]][toId[1]].isEmpty(nodeId)) {
-								++it;
-								continue;
-							}
-							removeServer(toId);
-							return toId;
-						}
-					}
-				}
-			}
-			return {-1, -1, -1};
-		};
-
-		auto selectServerMigrate = [&](const std::vector<int> &fromId, int cpuBase, int memBase) -> std::vector<int> {
-			auto ret = searchSeverMigrate(fromId, cpuBase, cpuFragSize, cpuBase, memBase);
-			if (ret[0] != -1) return ret;
-			int cpuUsedBase = cpuBase;
-			int memUsedBase = memBase;
-			cpuBase += cpuFragSize;
-			memBase += memFragSize;
-			int cpuStep = cpuFragSize;
-			int memStep = memFragSize;
-			for (int i = cpuBase, j = memBase; i <= CPUN && j <= MEMN; i += cpuStep, j += memStep) {
-				auto ret = searchSeverMigrate(fromId, i, cpuStep, cpuUsedBase, memUsedBase);
-				if (ret[0] != -1) return ret;
-			}
-			return {-1, -1, -1};
-		};
-
-		auto doMigrate = [&](const std::vector<int> &fromId, const std::vector<int> &toId) {
-			int nodeId = getNodeId(fromId[2]);
-			for (const auto &vmId : serverIndexToVmId[fromId[0]][nodeId][fromId[1]]) {
-				const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
-				uninstall(serversUsed[fromId[0]][fromId[1]], fromId, vmInfo);
-				install(serversUsed[toId[0]][toId[1]], toId, vmInfo);
-				ansMigrate.push_back({vmId, toId[0], toId[1], toId[2]});
-				serverIndexToVmId[toId[0]][getNodeId(toId[2])][toId[1]].emplace_back(vmId);
-				installId[vmId] = toId;
-			}
-			serverIndexToVmId[fromId[0]][nodeId][fromId[1]].clear();
-		};
-
-		for (const auto &e : cpuMemPairs) {
-			for (int isDouble = 0; isDouble < 2; ++isDouble) {
-				int lim = isDouble ? 1 : 2;
-				for (int nodeId = 0; nodeId < lim; ++nodeId) {
-					auto &serIds = serversIdResBak[isDouble][nodeId][e.cpu][e.mem];
-					auto it = serIds.begin();
-					while (it != serIds.end()) {
-						std::vector<int> fromId{isDouble, *it, isDouble ? -1 : nodeId};
-						int migrateNum = serverIndexToVmId[fromId[0]][nodeId][fromId[1]].size();
-						const auto &server = serversUsed[fromId[0]][fromId[1]];
-						if (migrateNum > migrateLim || server.isEmpty(nodeId) 
-							|| server.cpuCores[nodeId] <= cpuFragSize && server.memorySize[nodeId] <= memFragSize) {
-							++it;
-							continue;
-						}
-						auto toId = selectServerMigrate(fromId, server.cpuUsed[nodeId], server.memoryUsed[nodeId]);
-						if (toId[0] == -1) break;
-						migrateLim -= migrateNum;
-						// migrateRecords.push_back({fromId, toId});
-						auto tmpIt = it++;
-						removeServer(fromId);
-						
-						// std::cerr << (fromId[0] ? "2" : fromId[2] ? "B" : "A") << ": " << serversUsed[fromId[0]][fromId[1]] 
-						// 	<< " -> " << (toId[0] ? "2" : toId[2] ? "B" : "A") << ": " << serversUsed[toId[0]][toId[1]] << "\n";
-						// std::cerr << std::endl;
-						doMigrate(fromId, toId);
-					}
-				}
-			}
-		}
-		
-		// for (int i = 0; i <= CPUN; ++i) {
-		// 	for (int j = 0; j <= MEMN; ++j) {
-		// 		if (i == 0 && j == 0) continue;
-		// 		for (int isDouble = 1; isDouble < 2; ++isDouble) {
-		// 			int lim = isDouble ? 1 : 2;
-		// 			for (int nodeId = 0; nodeId < lim; ++nodeId) {
-		// 				for (const auto &idx : serversIdUse[isDouble][nodeId][i][j]) {
-		// 					std::vector<int> fromId{isDouble, idx, isDouble ? -1 : nodeId};
-		// 					if (serverMigrated.count(fromId)) continue;
-		// 					auto toId = selectServerMigrate(fromId, i, i + 10, j, j + 10);
-		// 					if (toId[0] == -1) break;
-		// 					migrateRecords.push_back({fromId, toId});
-		// 					serverMigrated.emplace(fromId);
-		// 					serverMigrated.emplace(toId);
-		// 				}
-		// 			}
-		// 		}
+		// auto selectServerMigrate = [&](const std::vector<int> &fromId, int cpuBase, int memBase) -> std::vector<int> {
+		// 	auto ret = searchSeverMigrate(fromId, cpuBase, cpuFragSize, cpuBase, memBase);
+		// 	if (ret[0] != -1) return ret;
+		// 	int cpuUsedBase = cpuBase;
+		// 	int memUsedBase = memBase;
+		// 	cpuBase += cpuFragSize;
+		// 	memBase += memFragSize;
+		// 	int cpuStep = cpuFragSize;
+		// 	int memStep = memFragSize;
+		// 	for (int i = cpuBase, j = memBase; i <= CPUN && j <= MEMN; i += cpuStep, j += memStep) {
+		// 		auto ret = searchSeverMigrate(fromId, i, cpuStep, cpuUsedBase, memUsedBase);
+		// 		if (ret[0] != -1) return ret;
 		// 	}
-		// }
+		// 	return {-1, -1, -1};
+		// };
 
 		// auto doMigrate = [&](const std::vector<int> &fromId, const std::vector<int> &toId) {
 		// 	int nodeId = getNodeId(fromId[2]);
@@ -571,15 +503,36 @@ private:
 		// 	serverIndexToVmId[fromId[0]][nodeId][fromId[1]].clear();
 		// };
 
-		// for (const auto &record : migrateRecords) {
-		// 	int nodeId = getNodeId(record.fromId[2]);
-		// 	int migrateNum = serverIndexToVmId[record.fromId[0]][nodeId][record.fromId[1]].size();
-		// 	if (migrateNum > migrateLim) continue;
-		// 	migrateLim -= migrateNum;
-		// 	totalMigration += migrateNum;
-		// 	doMigrate(record.fromId, record.toId);
+		// for (const auto &e : cpuMemPairs) {
+		// 	for (int isDouble = 0; isDouble < 2; ++isDouble) {
+		// 		int lim = isDouble ? 1 : 2;
+		// 		for (int nodeId = 0; nodeId < lim; ++nodeId) {
+		// 			auto &serIds = serversIdResBak[isDouble][nodeId][e.cpu][e.mem];
+		// 			auto it = serIds.begin();
+		// 			while (it != serIds.end()) {
+		// 				std::vector<int> fromId{isDouble, *it, isDouble ? -1 : nodeId};
+		// 				int migrateNum = serverIndexToVmId[fromId[0]][nodeId][fromId[1]].size();
+		// 				const auto &server = serversUsed[fromId[0]][fromId[1]];
+		// 				if (migrateNum > migrateLim || server.isEmpty(nodeId) 
+		// 					|| server.cpuCores[nodeId] <= cpuFragSize && server.memorySize[nodeId] <= memFragSize) {
+		// 					++it;
+		// 					continue;
+		// 				}
+		// 				auto toId = selectServerMigrate(fromId, server.cpuUsed[nodeId], server.memoryUsed[nodeId]);
+		// 				if (toId[0] == -1) break;
+		// 				migrateLim -= migrateNum;
+		// 				auto tmpIt = it++;
+		// 				removeServer(fromId);
+						
+		// 				// std::cerr << (fromId[0] ? "2" : fromId[2] ? "B" : "A") << ": " << serversUsed[fromId[0]][fromId[1]] 
+		// 				// 	<< " -> " << (toId[0] ? "2" : toId[2] ? "B" : "A") << ": " << serversUsed[toId[0]][toId[1]] << "\n";
+		// 				// std::cerr << std::endl;
+		// 				doMigrate(fromId, toId);
+		// 			}
+		// 		}
+		// 	}
 		// }
-
+		
 		for (size_t i = 0; i < serversUsed[0].size(); ++i) {
 			const auto &server = serversUsed[0][i];
 			for (int j = 0; j < 2; ++j) {
@@ -597,6 +550,41 @@ private:
 			assert(std::find(serIdUse.begin(), serIdUse.end(), i) != serIdUse.end());
 		}
 
+		int migrateLim = vmResNum * 5 / 1000;
+		auto vmMigrate = [&]() {
+			if (vmResNum == 0) {
+				return;
+			}
+			int curIndex = (lastMigrateIndex + 1) % vmList.size();
+			while (migrateLim > 0 && curIndex != lastMigrateIndex) {
+				int vmId = vmList[curIndex];
+				if (installId.count(vmId)) {
+					auto fromId = installId[vmId];
+					if (serversUsed[fromId[0]][fromId[1]].isNearlyFull()) {
+						curIndex = (curIndex + 1) % vmList.size();
+						continue;
+					}
+					const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+					banned[fromId[0]][fromId[1]] = 1;
+					auto selId = selectServerInstall(vmInfo);
+					if (selId.first != -1) {
+						std::vector<int> toId{selId.second == -1, selId.first, selId.second};
+						// std::cerr << (fromId[0] ? "2" : fromId[2] ? "B" : "A") << ": " << serversUsed[fromId[0]][fromId[1]] 
+						// 	<< " -> " << (toId[0] ? "2" : toId[2] ? "B" : "A") << ": " << serversUsed[toId[0]][toId[1]] << "\n";
+						// std::cerr << std::endl;
+						uninstall(fromId, vmId);
+						install(toId, vmId);
+						ansMigrate.push_back({vmId, toId[0], toId[1], toId[2]});
+						--migrateLim;
+					}
+					banned[fromId[0]][fromId[1]] = 0;
+				}
+				curIndex = (curIndex + 1) % vmList.size();
+			}
+			lastMigrateIndex = (curIndex - 1 + vmList.size()) % vmList.size();
+		};
+		vmMigrate();
+
 		int newBuyCnt = 0;
 
 		for (const auto &command : commands) {
@@ -605,39 +593,28 @@ private:
 
 				++vmResNum;
 
+				vmIdToIndex[command.vmId] = command.vmIndex;
+
 				const VmInfo &vmInfo = vmInfos[command.vmIndex];
 				auto selId = selectServerInstall(vmInfo);
 
-				std::vector<int> insId{vmInfo.isDouble, selId.first, selId.second};
+				std::vector<int> insId{selId.second == -1, selId.first, selId.second};
 
 				if (selId.first == -1) {
 					insId = newServer(vmInfo);
 					++newBuyCnt;
 				}
-				install(serversUsed[insId[0]][insId[1]], insId, vmInfo);
-				serverIndexToVmId[insId[0]][getNodeId(insId[2])][insId[1]].emplace_back(command.vmId);
-
-				installId[command.vmId] = insId;
+				install(insId, command.vmId);
 				ansId.push_back(insId);
 
-				vmIdToIndex[command.vmId] = command.vmIndex;
-
-				vmCpuSum += vmInfo.cpuCores;
-				vmMemSum += vmInfo.memorySize;
+				vmList.emplace_back(command.vmId);
 			}
 			else { // del
 
 				--vmResNum;
 
 				auto insId = installId[command.vmId];
-				const auto &vmInfo = vmInfos[vmIdToIndex[command.vmId]];
-				uninstall(serversUsed[insId[0]][insId[1]], insId, vmInfo);
-
-				auto &serIds = serverIndexToVmId[insId[0]][getNodeId(insId[2])][insId[1]];
-				serIds.erase(std::find(serIds.begin(), serIds.end(), command.vmId));
-
-				vmCpuSum -= vmInfo.cpuCores;
-				vmMemSum -= vmInfo.memorySize;
+				uninstall(insId, command.vmId);
 			}
 		}
 
@@ -825,7 +802,8 @@ public:
 		std::srand(20210331);
 
 		#ifdef ON_LINE
-		std::cin >> dayNum >> previewNum;
+		std::cin >> dayNum;
+		std::cin >> previewNum;
 		std::cin.ignore();
 		commands.resize(dayNum);
 		for (int i = 0; i < previewNum; ++i) {
@@ -834,6 +812,8 @@ public:
 		#endif
 
 		outputBuffer.clear();
+
+		vmList.clear();
 
 		serversUsed[0].clear();
 		serversUsed[1].clear();
