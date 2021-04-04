@@ -238,6 +238,15 @@ private:
 		return fabs(static_cast<double>(vc) / vm - static_cast<double>(sc) / sm);
 	}
 
+	// inline double calF(const ServerInfo &server, const VmInfo &vmInfo) {
+	// 	double serverK = static_cast<double>(server.cpuCores[0]) / server.memorySize[0];
+	// 	double vmK = static_cast<double>(vmInfo.cpuCores) / vmInfo.memorySize;
+	// 	double ratio = std::max(serverK / vmK, vmK / serverK);
+	// 	return levelCoef * std::floor(ratio / acceptRange)
+	// 		+ serverK * (server.cpuCores[0] - vmInfo.cpuCores)
+	// 		+ 1.0 / serverK * (server.memorySize[0] - vmInfo.memorySize);
+	// }
+
 	inline double calF(const ServerInfo &server, const VmInfo &vmInfo) {
 		if (vmMemSum == 0) {
 			return 0;
@@ -272,6 +281,8 @@ private:
 
 		double weightAll = 0.80;
 
+		// if (curDay == 116) std::cerr << server << " " << costPerCpuAll << " " << costPerCpuRes << std::endl;
+
 		return costPerCpuAll * weightAll + costPerCpuRes * (1.0 - weightAll);
 	}
 
@@ -280,6 +291,7 @@ private:
 		int memorySize = vmInfo.isDouble ? vmInfo.memorySize / 2 : vmInfo.memorySize;
 		double fmn = oo;
 		int ret = -1;
+		// if (curDay == 116) std::cerr << vmInfo << std::endl;
 		for (size_t i = 0; i < serverInfos.size(); ++i) {
 			const auto &server = serverInfos[i];
 			if (server.cpuCores[0] >= cpuCores && server.memorySize[0] >= memorySize) {
@@ -289,6 +301,11 @@ private:
 					ret = i;
 				}
 			}
+		}
+		if (curDay == 116) {
+			// std::cerr << "select: " << serverInfos[ret] << " " << fmn << std::endl;
+			// calF(serverInfos[ret], vmInfo);
+			// std::cerr << std::endl;
 		}
 		return ret;
 	}
@@ -635,25 +652,26 @@ private:
 
 		// std::cerr << newBuyCnt << " / " << calEmptyNum() << std::endl;
 
-		auto calRatio = [&]() -> std::pair<double, double> {
-			double vmCpuSum = 0, vmMemSum = 0;
-			double serverCpuSum = 0, serverMemSum = 0;
-			for (int isDouble = 0; isDouble < 2; ++isDouble) {
-				for (const auto &server : serversUsed[isDouble]) {
-					vmCpuSum += server.cpuUsed[0] + server.cpuUsed[1];
-					vmMemSum += server.memoryUsed[0] + server.memoryUsed[1];
-					serverCpuSum += server.cpuTotal;
-					serverMemSum += server.memoryTotal;
+		auto calRatio = [&]() {
+			int cpuAdd = 0, memAdd = 0;
+			int cntAdd = 0, cntDel = 0;
+			for (const auto &cmd : commands) {
+				const auto &vmInfo = vmInfos[cmd.vmIndex];
+				if (cmd.commandType) {
+					++cntAdd;
+					cpuAdd += vmInfo.cpuCores;
+					memAdd += vmInfo.memorySize;
+				}
+				else {
+					++cntDel;
 				}
 			}
-			return {vmCpuSum / vmMemSum, serverCpuSum / serverMemSum};
-		};
-		// if (curDay > 0) {
-		// 	auto ratio = calRatio();
-		// 	// std::cerr << ratio.first << " " << ratio.second << std::endl;
-		// 	// std::cerr << 1.0 * vmCpuSum / vmMemSum << " " << 1.0 * serverCpuSum / serverMemSum << std::endl;
-		// }
+			double ratioAdd = 1.0 * cpuAdd / (0.05 + memAdd);
+			double ratio = 1.0 * vmCpuSum / (0.05 + vmMemSum);
 
+			std::cerr << curDay << ": " << cntAdd << " " << cntDel << " " << ratioAdd << " " << ratio << std::endl; 
+		};
+		calRatio();
 
 		for (const auto &it : buyCnt) {
 			totalCost += it.second * 1ll * serverInfos[it.first].serverCost;
