@@ -124,9 +124,10 @@ public:
 			return cpuUsed[nodeId] == 0 && memoryUsed[nodeId] == 0;
 		}
 
-		bool isNearlyFull() const {
-			return (cpuUsed[0] + cpuUsed[1]) >= cpuTotal * 0.9
-				&& (memoryUsed[0] + memoryUsed[1]) >= memoryTotal * 0.9;
+		bool isNearlyFull(int nodeId = 0) const {
+			double ratio = 0.95;
+			return cpuUsed[nodeId] >= cpuTotal / 2 * ratio
+				&& memoryUsed[nodeId] >= memoryTotal / 2 * ratio;
 		}
 	};
 
@@ -222,6 +223,8 @@ private:
 	int vmMemSum = 0;
 	int serverCpuSum = 0;
 	int serverMemSum = 0;
+	int maxCpu = 0;
+	int maxMem = 0;
 
 	int tim = 0;
 	const int shuffleFreq = 50;
@@ -296,8 +299,8 @@ private:
 		int lim = vmInfo.isDouble ? 1 : 2;
 		std::pair<int, int> ret{-1, -1};
 		auto searchServer = [&](int cpuBase, int cpuLim, int memBase, int memLim) -> std::pair<int, int> {
-			cpuLim = std::min(cpuLim, CPUN);
-			memLim = std::min(memLim, MEMN);
+			cpuLim = std::min(cpuLim, maxCpu);
+			memLim = std::min(memLim, maxMem);
 			for (int i = cpuBase; i <= cpuLim; ++i) {
 				for (int j = memBase; j <= memLim; ++j) {
 					for (int k = 0; k < lim; ++k) {
@@ -316,13 +319,13 @@ private:
 
 		int step = (cpuCores + memorySize) / 2;
 
-		int dLim = std::max((CPUN + 1 - cpuCores + step - 1) / step, 
-			(MEMN + 1 - memorySize + step - 1) / step);
+		int dLim = std::max((maxCpu + 1 - cpuCores + step - 1) / step, 
+			(maxMem + 1 - memorySize + step - 1) / step);
 		for (int d = 0; d <= dLim; ++d) {
 			for (int f = 0; f < 2; ++f) {
 				int cpuBase = f == 0 ? cpuCores + d * step : cpuCores;
 				int memoryBase = f == 0 ? memorySize : memorySize + d * step;
-				for (int i = cpuBase, j = memoryBase; i <= CPUN && j <= MEMN; i += step, j += step) {
+				for (int i = cpuBase, j = memoryBase; i <= maxCpu && j <= maxMem; i += step, j += step) {
 					ret = searchServer(i, i + step - 1, j, j + step - 1);
 					if (ret.first != -1) return ret;
 				}
@@ -360,6 +363,8 @@ private:
 			banned[vmInfo.isDouble].emplace_back(0);
 			serverCpuSum += server.cpuTotal;
 			serverMemSum += server.memoryTotal;
+			maxCpu = std::max(maxCpu, server.cpuTotal / 2);
+			maxMem = std::max(maxMem, server.memoryTotal / 2);
 			return insId;
 		};
 
@@ -560,7 +565,7 @@ private:
 				int vmId = vmList[curIndex];
 				if (installId.count(vmId)) {
 					auto fromId = installId[vmId];
-					if (serversUsed[fromId[0]][fromId[1]].isNearlyFull()) {
+					if (serversUsed[fromId[0]][fromId[1]].isNearlyFull(getNodeId(fromId[2]))) {
 						curIndex = (curIndex + 1) % vmList.size();
 						continue;
 					}
