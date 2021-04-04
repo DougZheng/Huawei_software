@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iomanip>
 #include <algorithm>
 #include <vector>
 #include <string>
@@ -113,12 +114,12 @@ public:
 			memoryUsed[nodeId] -= memory;
 		}
 
-		double calUsedRatio(double levelCoef = 300.0, double acceptRange = 1.20) {
-			double serverK = cpuTotal / (0.05 + memoryTotal);
-			double vmK = (cpuUsed[0] + cpuUsed[1]) / (0.05 + memoryUsed[0] + memoryUsed[1]);
-			double ratio = std::max(serverK / vmK, vmK / serverK);
-			return -(levelCoef * std::floor(ratio / acceptRange));
-		}
+		// double calUsedRatio(double levelCoef = 300.0, double acceptRange = 1.20) {
+		// 	double serverK = cpuTotal / (0.05 + memoryTotal);
+		// 	double vmK = (cpuUsed[0] + cpuUsed[1]) / (0.05 + memoryUsed[0] + memoryUsed[1]);
+		// 	double ratio = std::max(serverK / vmK, vmK / serverK);
+		// 	return -(levelCoef * std::floor(ratio / acceptRange));
+		// }
 
 		bool isEmpty(int nodeId = 0) const {
 			return cpuUsed[nodeId] == 0 && memoryUsed[nodeId] == 0;
@@ -128,6 +129,12 @@ public:
 			double ratio = 0.95;
 			return cpuUsed[nodeId] >= cpuTotal / 2 * ratio
 				&& memoryUsed[nodeId] >= memoryTotal / 2 * ratio;
+		}
+
+		std::pair<double, double> calUsedRatio(int nodeId = 0) const {
+			double cpuRatio = static_cast<double>(cpuUsed[nodeId]) / (cpuTotal / 2);
+			double memRatio = static_cast<double>(memoryUsed[nodeId]) / (memoryTotal / 2);
+			return {cpuRatio, memRatio};
 		}
 	};
 
@@ -318,12 +325,14 @@ private:
 		auto searchServer = [&](int cpuBase, int cpuLim, int memBase, int memLim) -> std::pair<int, int> {
 			cpuLim = std::min(cpuLim, maxCpu);
 			memLim = std::min(memLim, maxMem);
+			int rev = lim == 2 && std::rand() % 2;
 			for (int i = cpuBase; i <= cpuLim; ++i) {
 				for (int j = memBase; j <= memLim; ++j) {
 					for (int k = 0; k < lim; ++k) {
-						for (const auto &idx : serversIdRes[vmInfo.isDouble][k][i][j]) {
+						int nodeId = rev ? k ^ 1 : k;
+						for (const auto &idx : serversIdRes[vmInfo.isDouble][nodeId][i][j]) {
 							if (banned[vmInfo.isDouble][idx]) continue;
-							return {idx, vmInfo.isDouble ? -1 : k};
+							return {idx, vmInfo.isDouble ? -1 : nodeId};
 						}
 					}
 				}
@@ -572,13 +581,17 @@ private:
 			assert(std::find(serIdUse.begin(), serIdUse.end(), i) != serIdUse.end());
 		}
 
-		int migrateLim = vmResNum * 5 / 1000;
 		auto vmMigrate = [&]() {
 			if (vmResNum == 0) {
 				return;
 			}
+			double migrateRatio = 0.5;
+			int migrateLim = vmResNum * 3 / 100;
+			int migrateLim1 = migrateLim * migrateRatio;
+			int migrateLim2 = migrateLim - migrateLim1;
+
 			int curIndex = (lastMigrateIndex + 1) % vmList.size();
-			while (migrateLim > 0 && curIndex != lastMigrateIndex) {
+			while (migrateLim1 > 0 && curIndex != lastMigrateIndex) {
 				int vmId = vmList[curIndex];
 				if (installId.count(vmId)) {
 					auto fromId = installId[vmId];
@@ -597,13 +610,40 @@ private:
 						uninstall(fromId, vmId);
 						install(toId, vmId);
 						ansMigrate.push_back({vmId, toId[0], toId[1], toId[2]});
-						--migrateLim;
+						--migrateLim1;
 					}
 					banned[fromId[0]][fromId[1]] = 0;
 				}
 				curIndex = (curIndex + 1) % vmList.size();
 			}
 			lastMigrateIndex = (curIndex - 1 + vmList.size()) % vmList.size();
+
+			for (int i = serversUsed[0].size() - 1; i >= 0 && migrateLim2 > 0; --i) {
+			// for (size_t i = 0; i < serversUsed[0].size() && migrateLim2 > 0; ++i) {
+				const auto &server = serversUsed[0][i];
+				if (server.isEmpty(0) + server.isEmpty(1) == 1) {
+					int nodeId = server.isEmpty(0) ? 1 : 0;
+					const auto vmIdList = serverIndexToVmId[0][nodeId][i];
+					if (migrateLim2 < vmIdList.size()) continue;
+					for (const auto &vmId : vmIdList) {
+						const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+						auto fromId = installId[vmId];
+						banned[fromId[0]][fromId[1]] = 1;
+						auto selId = selectServerInstall(vmInfo);
+						if (selId.first != -1) {
+							std::vector<int> toId{selId.second == -1, selId.first, selId.second};
+							// std::cerr << (fromId[0] ? "2" : fromId[2] ? "B" : "A") << ": " << serversUsed[fromId[0]][fromId[1]] 
+							// 	<< " -> " << (toId[0] ? "2" : toId[2] ? "B" : "A") << ": " << serversUsed[toId[0]][toId[1]] << "\n";
+							// std::cerr << std::endl;
+							uninstall(fromId, vmId);
+							install(toId, vmId);
+							ansMigrate.push_back({vmId, toId[0], toId[1], toId[2]});
+							--migrateLim2;
+						}
+						banned[fromId[0]][fromId[1]] = 0;
+					}
+				}
+			}
 		};
 		vmMigrate();
 
@@ -671,7 +711,7 @@ private:
 
 			std::cerr << curDay << ": " << cntAdd << " " << cntDel << " " << ratioAdd << " " << ratio << std::endl; 
 		};
-		calRatio();
+		// calRatio();
 
 		for (const auto &it : buyCnt) {
 			totalCost += it.second * 1ll * serverInfos[it.first].serverCost;
@@ -730,15 +770,24 @@ private:
 			}
 		}
 
-		// if (curDay == 652) {
-		// 	for (auto &server: serversUsed[0]) {
-		// 		std::cerr << server << std::endl;
-		// 	}
-		// 	std::cerr << std::string(80, '-') << std::endl;
-		// 	for (auto &server : serversUsed[1]) {
-		// 		std::cerr << server << std::endl;
-		// 	}
-		// }
+		auto printUsedRatio = [&]() {
+			if (curDay == 500) {
+				std::cerr << std::fixed << std::setprecision(3);
+				for (auto &server: serversUsed[0]) {
+					// std::cerr << server << std::endl;
+					auto r0 = server.calUsedRatio(0);
+					auto r1 = server.calUsedRatio(1);
+					std::cerr << r0.first << "/" << r0.second << " | " << r1.first << "/" << r1.second << std::endl;
+				}
+				std::cerr << std::string(80, '-') << std::endl;
+				for (auto &server : serversUsed[1]) {
+					// std::cerr << server << std::endl;
+					auto r0 = server.calUsedRatio();
+					std::cerr << r0.first << "/" << r0.second << std::endl;
+				}
+			}
+		};
+		// printUsedRatio();
 		
 		#ifdef ON_LINE
 		write();
