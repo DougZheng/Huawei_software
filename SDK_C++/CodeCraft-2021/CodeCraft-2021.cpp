@@ -1,32 +1,20 @@
+#include <ctime>
+#include <cstdlib>
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
+#include <utility>
+#include <list>
 #include <vector>
 #include <string>
-#include <tuple>
-#include <utility>
 #include <map>
-#include <set>
 #include <unordered_map>
-#include <unordered_set>
-#include <stack>
-#include <list>
-#include <queue>
-#include <ctime>
 #include <random>
-#include <functional>
-#include <climits>
 #include <cassert>
-#include <thread>
-#include <future>
-#include <bitset>
 
 #define EPS 1e-7
 
 class Solution {
-
-	static const int CPUN = 1024 / 2;
-	static const int MEMN = 1024 / 2;
 
 public:
 
@@ -41,8 +29,6 @@ public:
 		}
 		return tokens;
 	}
-
-	using return_type = std::tuple<long long, int, std::string>;
 
 	struct ServerInfo {
 
@@ -186,6 +172,13 @@ public:
 
 private:
 
+	static int dayNum;
+	static int previewNum;
+
+	static constexpr int CPUN = 1024 / 2;
+	static constexpr int MEMN = 1024 / 2;
+	static constexpr double oo = 1e200;
+
 	static std::vector<ServerInfo> serverInfos;
 	static std::unordered_map<std::string, int> vmTypeToIndex;
 	static std::vector<VmInfo> vmInfos;
@@ -194,7 +187,6 @@ private:
 	std::string outputBuffer;
 
 	std::vector<ServerInfo> serversUsed[2];
-
 	std::unordered_map<int, int> vmIdToIndex;
 	std::unordered_map<int, std::vector<int>> installId;
 	std::vector<std::list<int>> serverIndexToVmId[2][2];
@@ -204,24 +196,27 @@ private:
 	std::vector<int> banned[2];
 	std::vector<int> vmList;
 
-	int lastMigrateIndex = -1;
-
-	static int dayNum;
-	static int previewNum;
 	int curDay;
+
 	int serversUsedNum[2] = {};
 	int vmResNum[2] = {};
-	int totalMigration = 0;
-	long long totalCost = 0;
 
 	int vmCpuSum[2] = {};
 	int vmMemSum[2] = {};
 	int serverCpuSum[2] = {};
 	int serverMemSum[2] = {};
+
 	int maxCpu = 0;
 	int maxMem = 0;
 
-	const double oo = 1e200;
+	int lastMigrateIndex = -1;
+
+	int totalMigration = 0;
+	long long totalCost = 0;
+
+	inline int getNodeId(int nodeId) {
+		return nodeId != -1 ? nodeId : 0;
+	}
 
 	inline double calF(const ServerInfo &server, const VmInfo &vmInfo) {
 		if (vmResNum[vmInfo.isDouble] == 0) {
@@ -262,8 +257,14 @@ private:
 			resMemory[0] -= vmInfo.memorySize;
 		}
 
-		double equMemory[2] = {resMemory[0] * aimRatio, resMemory[1] * aimRatio};
-		double equCpu[2] = {std::min(resCpu[0], equMemory[0]), std::min(resCpu[1], equMemory[1])};
+		double equMemory[2] = {
+			resMemory[0] * aimRatio, 
+			resMemory[1] * aimRatio
+		};
+		double equCpu[2] = {
+			std::min(resCpu[0], equMemory[0]), 
+			std::min(resCpu[1], equMemory[1])
+		};
 
 		double costPerCpuRes = (server.serverCost + (dayNum - curDay + 1) * server.powerCost) 
 			/ (equCpu[0] + equCpu[1]);
@@ -332,10 +333,6 @@ private:
 			}
 		}
 		return {-1, -1};
-	}
-
-	inline int getNodeId(int nodeId) {
-		return nodeId != -1 ? nodeId : 0;
 	}
 
 	void solveOneDay(const std::vector<Command> &commands) {
@@ -448,9 +445,8 @@ private:
 				if (server.isEmpty(0) + server.isEmpty(1) == 1) {
 					int nodeId = server.isEmpty(0) ? 1 : 0;
 					const auto vmIdList = serverIndexToVmId[0][nodeId][i];
-					if (migrateRes2 < vmIdList.size()) continue;
+					if (migrateRes2 < int(vmIdList.size())) continue;
 					for (const auto &vmId : vmIdList) {
-						const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
 						auto fromId = installId[vmId];
 						migrateRes2 -= doMigrate(fromId, vmId);
 					}
@@ -473,7 +469,7 @@ private:
 			int migrateUse1 = migrateLim1 - migrateRes1;
 			int migrateUse2 = migrateLim2 - migrateRes2;
 			migrateLim -= migrateUse1 + migrateUse2;
-			if (migrateUse1 == 0 && migrateUse2 == 0 || migrateLim == 0) {
+			if (migrateUse1 + migrateUse2 == 0 || migrateLim == 0) {
 				break;
 			}
 			// double ratio = static_cast<double>(migrateUse1) / (migrateUse1 + migrateUse2);
@@ -493,8 +489,6 @@ private:
 			return serversIdUse[1][0][0][0].size();
 		};
 
-		int newBuyCnt = 0;
-
 		for (const auto &command : commands) {
 
 			if (command.commandType) { // add
@@ -508,7 +502,6 @@ private:
 
 				if (selId.first == -1) {
 					insId = newServer(vmInfo);
-					++newBuyCnt;
 					// if (!vmInfo.isDouble && calEmptyServer2() > 0) {
 					// 	std::cerr << curDay << " <2> " << calEmptyServer2() << std::endl;
 					// }
@@ -645,7 +638,6 @@ private:
 public:
 
 	void write() {
-
 		std::cout << outputBuffer;
 		std::cout.flush();
 		outputBuffer.clear();
@@ -654,8 +646,8 @@ public:
 	static void read() {
 
 		serverInfos.clear();
-		vmInfos.clear();
 		vmTypeToIndex.clear();
+		vmInfos.clear();
 		commands.clear();
 
 		int serverNum;
@@ -680,24 +672,6 @@ public:
 			vmTypeToIndex[vmInfo.vmType] = i;
 			vmInfos.emplace_back(vmInfo);
 		}
-
-		// std::cin >> dayNum >> previewNum;
-		// std::cin.ignore();
-		// commands.resize(dayNum);
-		// for (int i = 0; i < dayNum; ++i) {
-		// 	int commandNum;
-		// 	std::cin >> commandNum;
-		// 	std::cin.ignore();
-		// 	commands[i].reserve(commandNum);
-		// 	for (int j = 0; j < commandNum; ++j) {
-		// 		Command command;
-		// 		std::cin >> command;
-		// 		commands[i].emplace_back(command);
-		// 		if (commands[i].back().commandType) {
-		// 			commands[i].back().vmIndex = vmTypeToIndex[commands[i].back().vmType];
-		// 		}
-		// 	}
-		// }
 	}
 
 	void readOneDay(int day) {
@@ -726,25 +700,6 @@ public:
 		}
 
 		std::srand(20210331);
-
-		outputBuffer.clear();
-
-		vmList.clear();
-
-		serversUsed[0].clear();
-		serversUsed[1].clear();
-		vmIdToIndex.clear();
-		installId.clear();
-		serverIndexToVmId[0][0].clear();
-		serverIndexToVmId[0][1].clear();
-		serverIndexToVmId[1][0].clear();
-		serversUsedNum[0] = 0;
-		serversUsedNum[1] = 0;
-		vmResNum[0] = 0;
-		vmResNum[1] = 0;
-		totalMigration = 0;
-		totalCost = 0;
-		lastMigrateIndex = -1;
 
 		for (size_t i = 0; i < 2; ++i) {
 			for (size_t j = 0; j < 2; ++j) {
@@ -775,12 +730,12 @@ public:
 	}
 };
 
+int Solution::dayNum;
+int Solution::previewNum;
 std::vector<Solution::ServerInfo> Solution::serverInfos;
 std::unordered_map<std::string, int> Solution::vmTypeToIndex;
 std::vector<Solution::VmInfo> Solution::vmInfos;
 std::vector<std::vector<Solution::Command>> Solution::commands;
-int Solution::dayNum;
-int Solution::previewNum;
 
 int main() {
 
