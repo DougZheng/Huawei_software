@@ -220,15 +220,15 @@ private:
 	static int previewNum;
 	int curDay;
 	int serversUsedNum[2] = {};
-	int vmResNum = 0;
+	int vmResNum[2] = {};
 	int totalMigration = 0;
 	int canMigrateTotal = 0;
 	long long totalCost = 0;
 
-	int vmCpuSum = 0;
-	int vmMemSum = 0;
-	int serverCpuSum = 0;
-	int serverMemSum = 0;
+	int vmCpuSum[2] = {};
+	int vmMemSum[2] = {};
+	int serverCpuSum[2] = {};
+	int serverMemSum[2] = {};
 	int maxCpu = 0;
 	int maxMem = 0;
 
@@ -254,13 +254,23 @@ private:
 	// }
 
 	inline double calF(const ServerInfo &server, const VmInfo &vmInfo) {
-		if (vmMemSum == 0) {
+		// if (vmMemSum[vmInfo.isDouble] == 0) {
+		// 	return 0;
+		// }
+		if (vmResNum[vmInfo.isDouble] == 0) {
 			return 0;
 		}
 
-		double vmRatio = static_cast<double>(vmCpuSum) / vmMemSum;
-		double serverRatio = static_cast<double>(serverCpuSum) / serverMemSum;
+		double vmRatio = static_cast<double>(vmCpuSum[vmInfo.isDouble]) / vmMemSum[vmInfo.isDouble];
+		double serverRatio = static_cast<double>(serverCpuSum[vmInfo.isDouble]) / serverMemSum[vmInfo.isDouble];
 		double aimRatio = 2 * vmRatio - serverRatio;
+		if (vmResNum[vmInfo.isDouble] < 100) {
+			aimRatio = 1.0;
+		}
+		else if (vmResNum[vmInfo.isDouble] < 500) {
+			aimRatio = std::max(aimRatio, 0.75);
+			aimRatio = std::min(aimRatio, 1.25);
+		}
 
 		double resCpu[2] = {server.cpuCores[0], server.cpuCores[1]};
 		double resMemory[2] = {server.memorySize[0], server.memorySize[1]};
@@ -386,8 +396,8 @@ private:
 				serversIdUse[insId[0]][1][server.cpuUsed[1]][server.memoryUsed[1]].push_front(insId[1]);
 			}
 			banned[vmInfo.isDouble].emplace_back(0);
-			serverCpuSum += server.cpuTotal;
-			serverMemSum += server.memoryTotal;
+			serverCpuSum[vmInfo.isDouble] += server.cpuTotal;
+			serverMemSum[vmInfo.isDouble] += server.memoryTotal;
 			maxCpu = std::max(maxCpu, server.cpuTotal / 2);
 			maxMem = std::max(maxMem, server.memoryTotal / 2);
 			return insId;
@@ -406,8 +416,8 @@ private:
 			serversIdUse[insId[0]][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]].push_front(insId[1]);
 			serverIndexToVmId[insId[0]][nodeId][insId[1]].emplace_back(vmId);
 			installId[vmId] = insId;
-			vmCpuSum += vmInfo.cpuCores;
-			vmMemSum += vmInfo.memorySize;
+			vmCpuSum[insId[0]] += vmInfo.cpuCores;
+			vmMemSum[insId[0]] += vmInfo.memorySize;
 		};
 
 		auto uninstall = [&](const std::vector<int> &insId, int vmId) {
@@ -424,8 +434,8 @@ private:
 			auto &serIds = serverIndexToVmId[insId[0]][nodeId][insId[1]];
 			serIds.erase(std::find(serIds.begin(), serIds.end(), vmId));
 			installId.erase(vmId);
-			vmCpuSum -= vmInfo.cpuCores;
-			vmMemSum -= vmInfo.memorySize;
+			vmCpuSum[insId[0]] -= vmInfo.cpuCores;
+			vmMemSum[insId[0]] -= vmInfo.memorySize;
 		};
 
 		// int migrateLim = vmResNum * 3 / 100;
@@ -600,7 +610,7 @@ private:
 		};
 
 		auto vmMigrate = [&](int &migrateRes1, int &migrateRes2, double serverUsedRatio) {
-			if (vmResNum == 0) {
+			if (vmResNum[0] + vmResNum[1] == 0) {
 				return;
 			}
 
@@ -640,7 +650,7 @@ private:
 		};
 		double serverUsedRatio = 0.98;
 		double migrateRatio = 0.5;
-		int migrateLim = vmResNum * 3 / 100;
+		int migrateLim = (vmResNum[0] + vmResNum[1]) * 3 / 100;
 
 		while (true) {
 			int migrateLim1 = migrateLim * migrateRatio;
@@ -677,8 +687,6 @@ private:
 
 			if (command.commandType) { // add
 
-				++vmResNum;
-
 				vmIdToIndex[command.vmId] = command.vmIndex;
 
 				const VmInfo &vmInfo = vmInfos[command.vmIndex];
@@ -700,13 +708,15 @@ private:
 				ansId.push_back(insId);
 
 				vmList.emplace_back(command.vmId);
+				
+				++vmResNum[vmInfo.isDouble];
 			}
 			else { // del
 
-				--vmResNum;
-
 				auto insId = installId[command.vmId];
 				uninstall(insId, command.vmId);
+
+				--vmResNum[insId[2] == -1];
 			}
 		}
 
@@ -722,25 +732,25 @@ private:
 
 		// std::cerr << newBuyCnt << " / " << calEmptyNum() << std::endl;
 
-		auto calRatio = [&]() {
-			int cpuAdd = 0, memAdd = 0;
-			int cntAdd = 0, cntDel = 0;
-			for (const auto &cmd : commands) {
-				const auto &vmInfo = vmInfos[cmd.vmIndex];
-				if (cmd.commandType) {
-					++cntAdd;
-					cpuAdd += vmInfo.cpuCores;
-					memAdd += vmInfo.memorySize;
-				}
-				else {
-					++cntDel;
-				}
-			}
-			double ratioAdd = 1.0 * cpuAdd / (0.05 + memAdd);
-			double ratio = 1.0 * vmCpuSum / (0.05 + vmMemSum);
+		// auto calRatio = [&]() {
+		// 	int cpuAdd = 0, memAdd = 0;
+		// 	int cntAdd = 0, cntDel = 0;
+		// 	for (const auto &cmd : commands) {
+		// 		const auto &vmInfo = vmInfos[cmd.vmIndex];
+		// 		if (cmd.commandType) {
+		// 			++cntAdd;
+		// 			cpuAdd += vmInfo.cpuCores;
+		// 			memAdd += vmInfo.memorySize;
+		// 		}
+		// 		else {
+		// 			++cntDel;
+		// 		}
+		// 	}
+		// 	double ratioAdd = 1.0 * cpuAdd / (0.05 + memAdd);
+		// 	double ratio = 1.0 * vmCpuSum / (0.05 + vmMemSum);
 
-			std::cerr << curDay << ": " << cntAdd << " " << cntDel << " " << ratioAdd << " " << ratio << std::endl; 
-		};
+		// 	std::cerr << curDay << ": " << cntAdd << " " << cntDel << " " << ratioAdd << " " << ratio << std::endl; 
+		// };
 		// calRatio();
 
 		for (const auto &it : buyCnt) {
@@ -801,7 +811,7 @@ private:
 		}
 
 		auto printUsedRatio = [&]() {
-			if (curDay % 100 == 0) {
+			if (curDay % 80 == 0) {
 				std::cerr << "\n\n" << curDay << ": " << std::endl;
 				std::cerr << std::fixed << std::setprecision(3);
 				for (auto &server: serversUsed[0]) {
@@ -927,7 +937,8 @@ public:
 		serverIndexToVmId[1][0].clear();
 		serversUsedNum[0] = 0;
 		serversUsedNum[1] = 0;
-		vmResNum = 0;
+		vmResNum[0] = 0;
+		vmResNum[1] = 0;
 		totalMigration = 0;
 		canMigrateTotal = 0;
 		totalCost = 0;
