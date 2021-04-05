@@ -71,6 +71,8 @@ public:
 		int cpuTotal;
 		int memoryTotal;
 
+		// int isDouble;
+
 		void install(int nodeId, int cpu, int memory) {
 			if (nodeId == -1) {
 				install(0, cpu / 2, memory / 2);
@@ -318,16 +320,19 @@ private:
 		ret = searchServer(cpuCores, cpuCores + fragSize, memorySize, memorySize + fragSize);
 		if (ret.first != -1) return ret;
 
-		int step = (cpuCores + memorySize) / 2;
+		// int step = (cpuCores + memorySize) / 2;
+		int step = std::max(cpuCores, memorySize);
+		int cpuStep = step;
+		int memStep = step;
 
-		int dLim = std::max((maxCpu + 1 - cpuCores + step - 1) / step, 
-			(maxMem + 1 - memorySize + step - 1) / step);
+		int dLim = std::max((maxCpu + 1 - cpuCores + cpuStep - 1) / cpuStep, 
+			(maxMem + 1 - memorySize + memStep - 1) / memStep);
 		for (int d = 0; d <= dLim; ++d) {
 			for (int f = 0; f < 2; ++f) {
-				int cpuBase = f == 0 ? cpuCores + d * step : cpuCores;
-				int memoryBase = f == 0 ? memorySize : memorySize + d * step;
-				for (int i = cpuBase, j = memoryBase; i <= maxCpu && j <= maxMem; i += step, j += step) {
-					ret = searchServer(i, i + step - 1, j, j + step - 1);
+				int cpuBase = f == 0 ? cpuCores + d * cpuStep : cpuCores;
+				int memoryBase = f == 0 ? memorySize : memorySize + d * memStep;
+				for (int i = cpuBase, j = memoryBase; i <= maxCpu && j <= maxMem; i += cpuStep, j += memStep) {
+					ret = searchServer(i, i + cpuStep - 1, j, j + memStep - 1);
 					if (ret.first != -1) return ret;
 				}
 			}
