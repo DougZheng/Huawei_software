@@ -121,12 +121,11 @@ public:
 		// 	return -(levelCoef * std::floor(ratio / acceptRange));
 		// }
 
-		bool isEmpty(int nodeId = 0) const {
+		bool isEmpty(int nodeId) const {
 			return cpuUsed[nodeId] == 0 && memoryUsed[nodeId] == 0;
 		}
 
-		bool isNearlyFull(int nodeId = 0) const {
-			double ratio = 0.95;
+		bool isNearlyFull(int nodeId, double ratio) const {
 			return cpuUsed[nodeId] >= cpuTotal / 2 * ratio
 				&& memoryUsed[nodeId] >= memoryTotal / 2 * ratio;
 		}
@@ -581,71 +580,96 @@ private:
 			assert(std::find(serIdUse.begin(), serIdUse.end(), i) != serIdUse.end());
 		}
 
-		auto vmMigrate = [&]() {
+		auto doMigrate = [&](const std::vector<int> &fromId, int vmId) -> bool {
+			const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
+			banned[fromId[0]][fromId[1]] = 1;
+			auto selId = selectServerInstall(vmInfo);
+			if (selId.first == -1) {
+				banned[fromId[0]][fromId[1]] = 0;
+				return false;
+			}
+			std::vector<int> toId{selId.second == -1, selId.first, selId.second};
+			// std::cerr << (fromId[0] ? "2" : fromId[2] ? "B" : "A") << ": " << serversUsed[fromId[0]][fromId[1]] 
+			// 	<< " -> " << (toId[0] ? "2" : toId[2] ? "B" : "A") << ": " << serversUsed[toId[0]][toId[1]] << "\n";
+			// std::cerr << std::endl;
+			uninstall(fromId, vmId);
+			install(toId, vmId);
+			ansMigrate.push_back({vmId, toId[0], toId[1], toId[2]});
+			banned[fromId[0]][fromId[1]] = 0;
+			return true;
+		};
+
+		auto vmMigrate = [&](int &migrateRes1, int &migrateRes2, double serverUsedRatio) {
 			if (vmResNum == 0) {
 				return;
 			}
-			double migrateRatio = 0.5;
-			int migrateLim = vmResNum * 3 / 100;
-			int migrateLim1 = migrateLim * migrateRatio;
-			int migrateLim2 = migrateLim - migrateLim1;
+
+			// std::cerr << curDay << ": " << serverUsedRatio << "   " << migrateRes1 << " " << migrateRes2 << " | ";
 
 			int curIndex = (lastMigrateIndex + 1) % vmList.size();
-			while (migrateLim1 > 0 && curIndex != lastMigrateIndex) {
+			while (migrateRes1 > 0 && curIndex != lastMigrateIndex) {
 				int vmId = vmList[curIndex];
 				if (installId.count(vmId)) {
 					auto fromId = installId[vmId];
-					if (serversUsed[fromId[0]][fromId[1]].isNearlyFull(getNodeId(fromId[2]))) {
+					if (serversUsed[fromId[0]][fromId[1]].isNearlyFull(getNodeId(fromId[2]), serverUsedRatio)) {
 						curIndex = (curIndex + 1) % vmList.size();
 						continue;
 					}
-					const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
-					banned[fromId[0]][fromId[1]] = 1;
-					auto selId = selectServerInstall(vmInfo);
-					if (selId.first != -1) {
-						std::vector<int> toId{selId.second == -1, selId.first, selId.second};
-						// std::cerr << (fromId[0] ? "2" : fromId[2] ? "B" : "A") << ": " << serversUsed[fromId[0]][fromId[1]] 
-						// 	<< " -> " << (toId[0] ? "2" : toId[2] ? "B" : "A") << ": " << serversUsed[toId[0]][toId[1]] << "\n";
-						// std::cerr << std::endl;
-						uninstall(fromId, vmId);
-						install(toId, vmId);
-						ansMigrate.push_back({vmId, toId[0], toId[1], toId[2]});
-						--migrateLim1;
-					}
-					banned[fromId[0]][fromId[1]] = 0;
+					migrateRes1 -= doMigrate(fromId, vmId);
 				}
 				curIndex = (curIndex + 1) % vmList.size();
 			}
 			lastMigrateIndex = (curIndex - 1 + vmList.size()) % vmList.size();
 
-			for (int i = serversUsed[0].size() - 1; i >= 0 && migrateLim2 > 0; --i) {
+			for (int i = serversUsed[0].size() - 1; i >= 0 && migrateRes2 > 0; --i) {
 			// for (size_t i = 0; i < serversUsed[0].size() && migrateLim2 > 0; ++i) {
 				const auto &server = serversUsed[0][i];
 				if (server.isEmpty(0) + server.isEmpty(1) == 1) {
 					int nodeId = server.isEmpty(0) ? 1 : 0;
 					const auto vmIdList = serverIndexToVmId[0][nodeId][i];
-					if (migrateLim2 < vmIdList.size()) continue;
+					if (migrateRes2 < vmIdList.size()) continue;
 					for (const auto &vmId : vmIdList) {
 						const auto &vmInfo = vmInfos[vmIdToIndex[vmId]];
 						auto fromId = installId[vmId];
-						banned[fromId[0]][fromId[1]] = 1;
-						auto selId = selectServerInstall(vmInfo);
-						if (selId.first != -1) {
-							std::vector<int> toId{selId.second == -1, selId.first, selId.second};
-							// std::cerr << (fromId[0] ? "2" : fromId[2] ? "B" : "A") << ": " << serversUsed[fromId[0]][fromId[1]] 
-							// 	<< " -> " << (toId[0] ? "2" : toId[2] ? "B" : "A") << ": " << serversUsed[toId[0]][toId[1]] << "\n";
-							// std::cerr << std::endl;
-							uninstall(fromId, vmId);
-							install(toId, vmId);
-							ansMigrate.push_back({vmId, toId[0], toId[1], toId[2]});
-							--migrateLim2;
-						}
-						banned[fromId[0]][fromId[1]] = 0;
+						migrateRes2 -= doMigrate(fromId, vmId);
 					}
 				}
 			}
+
+			// std::cerr << migrateRes1 << " " << migrateRes2 << std::endl;
 		};
-		vmMigrate();
+		double serverUsedRatio = 0.98;
+		double migrateRatio = 0.5;
+		int migrateLim = vmResNum * 3 / 100;
+
+		while (true) {
+			int migrateLim1 = migrateLim * migrateRatio;
+			int migrateLim2 = migrateLim - migrateLim1;
+			int migrateRes1 = migrateLim1;
+			int migrateRes2 = migrateLim2;
+			vmMigrate(migrateRes1, migrateRes2, serverUsedRatio);
+			int migrateUse1 = migrateLim1 - migrateRes1;
+			int migrateUse2 = migrateLim2 - migrateRes2;
+			migrateLim -= migrateUse1 + migrateUse2;
+			if (migrateUse1 == 0 && migrateUse2 == 0 || migrateLim == 0) {
+				break;
+			}
+			// double ratio = static_cast<double>(migrateUse1) / (migrateUse1 + migrateUse2);
+			// migrateRatio = std::min(0.5, ratio);
+			// serverUsedRatio = std::max(0.95, serverUsedRatio - 0.01);
+		}
+		
+		auto calEmptyServer1 = [&]() -> int {
+			int cnt = 0;
+			for (const auto &idx : serversIdUse[0][0][0][0]) {
+				cnt += serversUsed[0][idx].isEmpty(1);
+			}
+			return cnt;
+		};
+
+		auto calEmptyServer2 = [&]() -> int {
+			return serversIdUse[1][0][0][0].size();
+		};
 
 		int newBuyCnt = 0;
 
@@ -665,6 +689,12 @@ private:
 				if (selId.first == -1) {
 					insId = newServer(vmInfo);
 					++newBuyCnt;
+					// if (!vmInfo.isDouble && calEmptyServer2() > 0) {
+					// 	std::cerr << curDay << " <2> " << calEmptyServer2() << std::endl;
+					// }
+					// else if (vmInfo.isDouble && calEmptyServer1() > 0) {
+					// 	std::cerr << curDay << " <1> " << calEmptyServer1() << std::endl;
+					// }
 				}
 				install(insId, command.vmId);
 				ansId.push_back(insId);
@@ -771,7 +801,8 @@ private:
 		}
 
 		auto printUsedRatio = [&]() {
-			if (curDay == 500) {
+			if (curDay % 100 == 0) {
+				std::cerr << "\n\n" << curDay << ": " << std::endl;
 				std::cerr << std::fixed << std::setprecision(3);
 				for (auto &server: serversUsed[0]) {
 					// std::cerr << server << std::endl;
