@@ -365,27 +365,27 @@ private:
 		std::vector<std::pair<int, int>> ansId;
 		std::vector<std::vector<int>> ansMigrate;
 
-		auto printUsedRatio = [&]() {
-			if (curDay % 80 == 0) {
-				std::cerr << "\n\n" << curDay << ": " << std::endl;
-				std::cerr << std::fixed << std::setprecision(3);
-				for (auto &server: serversUsed) {
-					if (server.isDouble) continue;
-					// std::cerr << server << std::endl;
-					auto r0 = server.calUsedRatio(0);
-					auto r1 = server.calUsedRatio(1);
-					std::cerr << r0.first << "/" << r0.second << " | " << r1.first << "/" << r1.second << std::endl;
-				}
-				std::cerr << std::string(80, '-') << std::endl;
-				for (auto &server : serversUsed) {
-					if (!server.isDouble) continue;
-					// std::cerr << server << std::endl;
-					auto r0 = server.calUsedRatio();
-					std::cerr << r0.first << "/" << r0.second << std::endl;
-				}
-			}
-		};
-		// printUsedRatio()
+		// auto printUsedRatio = [&]() {
+		// 	if (curDay % 80 == 0) {
+		// 		std::cerr << "\n\n" << curDay << ": " << std::endl;
+		// 		std::cerr << std::fixed << std::setprecision(3);
+		// 		for (auto &server: serversUsed) {
+		// 			if (server.isDouble) continue;
+		// 			// std::cerr << server << std::endl;
+		// 			auto r0 = server.calUsedRatio(0);
+		// 			auto r1 = server.calUsedRatio(1);
+		// 			std::cerr << r0.first << "/" << r0.second << " | " << r1.first << "/" << r1.second << std::endl;
+		// 		}
+		// 		std::cerr << std::string(80, '-') << std::endl;
+		// 		for (auto &server : serversUsed) {
+		// 			if (!server.isDouble) continue;
+		// 			// std::cerr << server << std::endl;
+		// 			auto r0 = server.calUsedRatio();
+		// 			std::cerr << r0.first << "/" << r0.second << std::endl;
+		// 		}
+		// 	}
+		// };
+		// // printUsedRatio()
 
 		auto newServer = [&](const VmInfo &vmInfo) -> std::pair<int, int> {
 			int buyId = selectServerPurchase(vmInfo);
@@ -493,6 +493,41 @@ private:
 					for (const auto &vmId : vmIdList) {
 						auto fromId = installId[vmId];
 						migrateRes2 -= doMigrate(fromId, vmId);
+					}
+				}
+			}
+
+			double aimRatio[2] = {
+				vmMemSum[0] > 0 ? static_cast<double>(vmCpuSum[0]) / vmMemSum[0] : 1.0, 
+				vmMemSum[1] > 0 ? static_cast<double>(vmCpuSum[1]) / vmMemSum[1] : 1.0
+			};
+			aimRatio[0] = std::max(aimRatio[0], 1.0 / aimRatio[0]);
+			aimRatio[1] = std::max(aimRatio[1], 1.0 / aimRatio[1]);
+			double migrateFactor = 2.0;
+			for (size_t i = 0; i < serversUsed.size() && migrateRes2 > 0; ++i) {
+				const auto &server = serversUsed[i];
+				if (server.isEmpty(0) && server.isEmpty(1)) continue;
+				double ratio[2] = {
+					server.isEmpty(0) ? 1.0 : static_cast<double>(server.cpuUsed[0]) / server.memoryUsed[0], 
+					server.isEmpty(1) ? 1.0 : static_cast<double>(server.cpuUsed[1]) / server.memoryUsed[1]
+				};
+				ratio[0] = std::max(ratio[0], 1.0 / ratio[0]);
+				ratio[1] = std::max(ratio[1], 1.0 / ratio[1]);
+				double maxRatio = std::max(ratio[0], ratio[1]);
+				if (maxRatio > migrateFactor * aimRatio[server.isDouble]) {
+					int lim = server.isDouble ? 1 : 2;
+					// int vmNum = 0;
+					// for (int nodeId = 0; nodeId < lim; ++nodeId) {
+					// 	vmNum += serverIndexToVmId[server.isDouble][nodeId][i].size();
+					// }
+					// if (migrateRes2 < vmNum) continue;
+					for (int nodeId = 0; nodeId < lim; ++nodeId) {
+						const auto vmIdList = serverIndexToVmId[server.isDouble][nodeId][i];
+						if (migrateRes2 < int(vmIdList.size())) continue;
+						for (const auto &vmId : vmIdList) {
+							auto fromId = installId[vmId];
+							migrateRes2 -= doMigrate(fromId, vmId);
+						}
 					}
 				}
 			}
