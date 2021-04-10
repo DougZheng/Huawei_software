@@ -339,6 +339,36 @@ private:
 		return {-1, -1};
 	}
 
+	// std::pair<int, int> selectServerInstall(const VmInfo &vmInfo) {
+	// 	int cpuCores = vmInfo.isDouble ? vmInfo.cpuCores / 2 : vmInfo.cpuCores;
+	// 	int memorySize = vmInfo.isDouble ? vmInfo.memorySize / 2 : vmInfo.memorySize;
+	// 	std::pair<int, int> ret{-1, -1};
+
+	// 	static const int fragSize = 5;
+	// 	ret = searchServer(vmInfo, cpuCores, cpuCores + fragSize, memorySize, memorySize + fragSize);
+	// 	if (ret.first != -1) return ret;
+	// 	// return searchServer(vmInfo, cpuCores, CPUN, memorySize, MEMN);
+
+	// 	// int step = (cpuCores + memorySize) / 2;
+	// 	int step = std::max(cpuCores, memorySize);
+	// 	int cpuStep = step;
+	// 	int memStep = step;
+
+	// 	int dLim = std::max((maxCpu + 1 - cpuCores + cpuStep - 1) / cpuStep, 
+	// 		(maxMem + 1 - memorySize + memStep - 1) / memStep);
+	// 	for (int d = 0; d <= dLim; ++d) {
+	// 		for (int f = 0; f < 2; ++f) {
+	// 			int cpuBase = f == 0 ? cpuCores + d * cpuStep : cpuCores;
+	// 			int memoryBase = f == 0 ? memorySize : memorySize + d * memStep;
+	// 			for (int i = cpuBase, j = memoryBase; i <= maxCpu && j <= maxMem; i += cpuStep, j += memStep) {
+	// 				ret = searchServer(vmInfo, i, i + cpuStep - 1, j, j + memStep - 1);
+	// 				if (ret.first != -1) return ret;
+	// 			}
+	// 		}
+	// 	}
+	// 	return {-1, -1};
+	// }
+
 	std::pair<int, int> selectServerInstall(const VmInfo &vmInfo) {
 		int cpuCores = vmInfo.isDouble ? vmInfo.cpuCores / 2 : vmInfo.cpuCores;
 		int memorySize = vmInfo.isDouble ? vmInfo.memorySize / 2 : vmInfo.memorySize;
@@ -347,96 +377,41 @@ private:
 		static const int fragSize = 5;
 		ret = searchServer(vmInfo, cpuCores, cpuCores + fragSize, memorySize, memorySize + fragSize);
 		if (ret.first != -1) return ret;
-		// return searchServer(vmInfo, cpuCores, CPUN, memorySize, MEMN);
 
 		// int step = (cpuCores + memorySize) / 2;
 		int step = std::max(cpuCores, memorySize);
 		int cpuStep = step;
 		int memStep = step;
 
-		int dLim = std::max((maxCpu + 1 - cpuCores + cpuStep - 1) / cpuStep, 
-			(maxMem + 1 - memorySize + memStep - 1) / memStep);
-		for (int d = 0; d <= dLim; ++d) {
-			for (int f = 0; f < 2; ++f) {
-				int cpuBase = f == 0 ? cpuCores + d * cpuStep : cpuCores;
-				int memoryBase = f == 0 ? memorySize : memorySize + d * memStep;
-				for (int i = cpuBase, j = memoryBase; i <= maxCpu && j <= maxMem; i += cpuStep, j += memStep) {
-					ret = searchServer(vmInfo, i, i + cpuStep - 1, j, j + memStep - 1);
-					if (ret.first != -1) return ret;
-				}
+		int midCpu = cpuCores + 15;
+		int midMem = memorySize + 15;
+		
+		for (int i = cpuCores; i <= midCpu; i += cpuStep) {
+			for (int j = memorySize; j <= midMem; j += memStep) {
+				ret = searchServer(vmInfo, i, i + cpuStep - 1, j, j + memStep - 1);
+				if (ret.first != -1) return ret;
+			}
+		}
+		for (int i = midCpu; i <= maxCpu; i += cpuStep) {
+			for (int j = midMem; j <= maxMem; j += memStep) {
+				ret = searchServer(vmInfo, i, i + cpuStep - 1, j, j + memStep - 1);
+				if (ret.first != -1) return ret;
+			}
+		}
+		for (int i = cpuCores; i <= midCpu; i += cpuStep) {
+			for (int j = midMem; j <= maxMem; j += memStep) {
+				ret = searchServer(vmInfo, i, i + cpuStep - 1, j, j + memStep - 1);
+				if (ret.first != -1) return ret;
+			}
+		}
+		for (int i = midCpu; i <= maxCpu; i += cpuStep) {
+			for (int j = memorySize; j <= midMem; j += memStep) {
+				ret = searchServer(vmInfo, i, i + cpuStep - 1, j, j + memStep - 1);
+				if (ret.first != -1) return ret;
 			}
 		}
 		return {-1, -1};
 	}
-
-	// std::pair<int, int> selectServerInstall(const VmInfo &vmInfo) {
-	// 	int cpuCores = vmInfo.isDouble ? vmInfo.cpuCores / 2 : vmInfo.cpuCores;
-	// 	int memorySize = vmInfo.isDouble ? vmInfo.memorySize / 2 : vmInfo.memorySize;
-	// 	int lim = vmInfo.isDouble ? 1 : 2;
-	// 	std::pair<int, int> ret{-1, -1};
-
-	// 	// int dLim = (maxCpu - cpuCores) + (maxMem - memorySize);
-
-	// 	// for (int d = 0; d <= dLim; ++d) {
-	// 	// 	for (int i = 0; i <= d; ++i) {
-	// 	// 		for (int j = 0; j <= d - i; ++j) {
-	// 	// 			ret = searchServer(cpuCores + i, cpuCores + i, memorySize + j, memorySize + j);
-	// 	// 			if (ret.first != -1) return ret;
-	// 	// 		}
-	// 	// 	}
-	// 	// }
-	// 	// return {-1, -1};
-
-	// 	// for (int d = 0; d <= dLim; ++d) {
-	// 	// 	int cpuLim = std::min(maxCpu, d);
-	// 	// 	for (int i = 0; i <= cpuLim; ++i) {
-	// 	// 		int memLim = std::min(maxMem, d - i);
-	// 	// 		for (int j = 0; j <= memLim; ++j) {
-	// 	// 			ret = searchServer(cpuCores + i, cpuCores + i, memorySize + j, memorySize + j);
-	// 	// 			if (ret.first != -1) return ret;
-	// 	// 		}
-	// 	// 	}
-	// 	// }
-	// 	// return {-1, -1};
-
-	// 	static const int fragSize = 5;
-	// 	ret = searchServer(vmInfo, cpuCores, cpuCores + fragSize, memorySize, memorySize + fragSize);
-	// 	if (ret.first != -1) return ret;
-
-	// 	// int step = (cpuCores + memorySize) / 2;
-	// 	int step = std::max(cpuCores, memorySize);
-	// 	int cpuStep = step;
-	// 	int memStep = step;
-
-	// 	int midCpu = cpuCores + 15;
-	// 	int midMem = memorySize + 15;
-		
-	// 	for (int i = cpuCores; i <= midCpu; i += cpuStep) {
-	// 		for (int j = memorySize; j <= midMem; j += memStep) {
-	// 			ret = searchServer(vmInfo, i, i + cpuStep - 1, j, j + memStep - 1);
-	// 			if (ret.first != -1) return ret;
-	// 		}
-	// 	}
-	// 	for (int i = midCpu; i <= maxCpu; i += cpuStep) {
-	// 		for (int j = midMem; j <= maxMem; j += memStep) {
-	// 			ret = searchServer(vmInfo, i, i + cpuStep - 1, j, j + memStep - 1);
-	// 			if (ret.first != -1) return ret;
-	// 		}
-	// 	}
-	// 	for (int i = cpuCores; i <= midCpu; i += cpuStep) {
-	// 		for (int j = midMem; j <= maxMem; j += memStep) {
-	// 			ret = searchServer(vmInfo, i, i + cpuStep - 1, j, j + memStep - 1);
-	// 			if (ret.first != -1) return ret;
-	// 		}
-	// 	}
-	// 	for (int i = midCpu; i <= maxCpu; i += cpuStep) {
-	// 		for (int j = memorySize; j <= midMem; j += memStep) {
-	// 			ret = searchServer(vmInfo, i, i + cpuStep - 1, j, j + memStep - 1);
-	// 			if (ret.first != -1) return ret;
-	// 		}
-	// 	}
-	// 	return {-1, -1};
-	// }
 
 	std::pair<int, int> newServer(const VmInfo &vmInfo) {
 		int buyId = selectServerPurchase(vmInfo);
