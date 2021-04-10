@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <random>
 #include <cassert>
+#include <chrono>
 
 // #define DEBUG
 #define EPS 1e-7
@@ -247,6 +248,9 @@ private:
 		// if (vmResNum[vmInfo.isDouble] < 10000) {
 		// 	aimRatio += 0.08 - std::rand() % 17 * 0.01;
 		// }
+		// if (curDay % 5 == 0) {
+		// 	aimRatio += 0.50 - std::rand() % 101 * 0.01;
+		// }
 
 		double resCpu[2] = {
 			static_cast<double>(server.cpuCores[0]), 
@@ -312,6 +316,53 @@ private:
 		return ret;
 	}
 
+	// std::pair<int, int> selectServerInstall(const VmInfo &vmInfo) {
+	// 	int cpuCores = vmInfo.isDouble ? vmInfo.cpuCores / 2 : vmInfo.cpuCores;
+	// 	int memorySize = vmInfo.isDouble ? vmInfo.memorySize / 2 : vmInfo.memorySize;
+	// 	int lim = vmInfo.isDouble ? 1 : 2;
+	// 	std::pair<int, int> ret{-1, -1};
+	// 	auto searchServer = [&](int cpuBase, int cpuLim, int memBase, int memLim) -> std::pair<int, int> {
+	// 		cpuLim = std::min(cpuLim, maxCpu);
+	// 		memLim = std::min(memLim, maxMem);
+	// 		int rev = lim == 2 && std::rand() % 2;
+	// 		for (int i = cpuBase; i <= cpuLim; ++i) {
+	// 			for (int j = memBase; j <= memLim; ++j) {
+	// 				for (int k = 0; k < lim; ++k) {
+	// 					int nodeId = rev ? k ^ 1 : k;
+	// 					for (const auto &idx : serversIdRes[vmInfo.isDouble][nodeId][i][j]) {
+	// 						if (banned[idx]) continue;
+	// 						return {idx, vmInfo.isDouble ? -1 : nodeId};
+	// 					}
+	// 				}
+	// 			}
+	// 		}
+	// 		return {-1, -1};
+	// 	};
+	// 	static const int fragSize = 5;
+	// 	ret = searchServer(cpuCores, cpuCores + fragSize, memorySize, memorySize + fragSize);
+	// 	if (ret.first != -1) return ret;
+	// 	// return searchServer(cpuCores, CPUN, memorySize, MEMN);
+
+	// 	// int step = (cpuCores + memorySize) / 2;
+	// 	int step = std::max(cpuCores, memorySize);
+	// 	int cpuStep = step;
+	// 	int memStep = step;
+
+	// 	int dLim = std::max((maxCpu + 1 - cpuCores + cpuStep - 1) / cpuStep, 
+	// 		(maxMem + 1 - memorySize + memStep - 1) / memStep);
+	// 	for (int d = 0; d <= dLim; ++d) {
+	// 		for (int f = 0; f < 2; ++f) {
+	// 			int cpuBase = f == 0 ? cpuCores + d * cpuStep : cpuCores;
+	// 			int memoryBase = f == 0 ? memorySize : memorySize + d * memStep;
+	// 			for (int i = cpuBase, j = memoryBase; i <= maxCpu && j <= maxMem; i += cpuStep, j += memStep) {
+	// 				ret = searchServer(i, i + cpuStep - 1, j, j + memStep - 1);
+	// 				if (ret.first != -1) return ret;
+	// 			}
+	// 		}
+	// 	}
+	// 	return {-1, -1};
+	// }
+
 	std::pair<int, int> selectServerInstall(const VmInfo &vmInfo) {
 		int cpuCores = vmInfo.isDouble ? vmInfo.cpuCores / 2 : vmInfo.cpuCores;
 		int memorySize = vmInfo.isDouble ? vmInfo.memorySize / 2 : vmInfo.memorySize;
@@ -334,26 +385,41 @@ private:
 			}
 			return {-1, -1};
 		};
+
 		static const int fragSize = 5;
 		ret = searchServer(cpuCores, cpuCores + fragSize, memorySize, memorySize + fragSize);
 		if (ret.first != -1) return ret;
-		// return searchServer(cpuCores, CPUN, memorySize, MEMN);
 
 		// int step = (cpuCores + memorySize) / 2;
 		int step = std::max(cpuCores, memorySize);
 		int cpuStep = step;
 		int memStep = step;
 
-		int dLim = std::max((maxCpu + 1 - cpuCores + cpuStep - 1) / cpuStep, 
-			(maxMem + 1 - memorySize + memStep - 1) / memStep);
-		for (int d = 0; d <= dLim; ++d) {
-			for (int f = 0; f < 2; ++f) {
-				int cpuBase = f == 0 ? cpuCores + d * cpuStep : cpuCores;
-				int memoryBase = f == 0 ? memorySize : memorySize + d * memStep;
-				for (int i = cpuBase, j = memoryBase; i <= maxCpu && j <= maxMem; i += cpuStep, j += memStep) {
-					ret = searchServer(i, i + cpuStep - 1, j, j + memStep - 1);
-					if (ret.first != -1) return ret;
-				}
+		int midCpu = cpuCores + 15;
+		int midMem = memorySize + 15;
+		
+		for (int i = cpuCores; i <= midCpu; i += cpuStep) {
+			for (int j = memorySize; j <= midMem; j += memStep) {
+				ret = searchServer(i, i + cpuStep - 1, j, j + memStep - 1);
+				if (ret.first != -1) return ret;
+			}
+		}
+		for (int i = midCpu; i <= maxCpu; i += cpuStep) {
+			for (int j = midMem; j <= maxMem; j += memStep) {
+				ret = searchServer(i, i + cpuStep - 1, j, j + memStep - 1);
+				if (ret.first != -1) return ret;
+			}
+		}
+		for (int i = cpuCores; i <= midCpu; i += cpuStep) {
+			for (int j = midMem; j <= maxMem; j += memStep) {
+				ret = searchServer(i, i + cpuStep - 1, j, j + memStep - 1);
+				if (ret.first != -1) return ret;
+			}
+		}
+		for (int i = midCpu; i <= maxCpu; i += cpuStep) {
+			for (int j = memorySize; j <= midMem; j += memStep) {
+				ret = searchServer(i, i + cpuStep - 1, j, j + memStep - 1);
+				if (ret.first != -1) return ret;
 			}
 		}
 		return {-1, -1};
@@ -364,28 +430,6 @@ private:
 		std::map<int, int> buyCnt;
 		std::vector<std::pair<int, int>> ansId;
 		std::vector<std::vector<int>> ansMigrate;
-
-		// auto printUsedRatio = [&]() {
-		// 	if (curDay % 80 == 0) {
-		// 		std::cerr << "\n\n" << curDay << ": " << std::endl;
-		// 		std::cerr << std::fixed << std::setprecision(3);
-		// 		for (auto &server: serversUsed) {
-		// 			if (server.isDouble) continue;
-		// 			// std::cerr << server << std::endl;
-		// 			auto r0 = server.calUsedRatio(0);
-		// 			auto r1 = server.calUsedRatio(1);
-		// 			std::cerr << r0.first << "/" << r0.second << " | " << r1.first << "/" << r1.second << std::endl;
-		// 		}
-		// 		std::cerr << std::string(80, '-') << std::endl;
-		// 		for (auto &server : serversUsed) {
-		// 			if (!server.isDouble) continue;
-		// 			// std::cerr << server << std::endl;
-		// 			auto r0 = server.calUsedRatio();
-		// 			std::cerr << r0.first << "/" << r0.second << std::endl;
-		// 		}
-		// 	}
-		// };
-		// // printUsedRatio()
 
 		auto newServer = [&](const VmInfo &vmInfo) -> std::pair<int, int> {
 			int buyId = selectServerPurchase(vmInfo);
@@ -516,11 +560,6 @@ private:
 				double maxRatio = std::max(ratio[0], ratio[1]);
 				if (maxRatio > migrateFactor * aimRatio[server.isDouble]) {
 					int lim = server.isDouble ? 1 : 2;
-					// int vmNum = 0;
-					// for (int nodeId = 0; nodeId < lim; ++nodeId) {
-					// 	vmNum += serverIndexToVmId[server.isDouble][nodeId][i].size();
-					// }
-					// if (migrateRes2 < vmNum) continue;
 					for (int nodeId = 0; nodeId < lim; ++nodeId) {
 						const auto vmIdList = serverIndexToVmId[server.isDouble][nodeId][i];
 						if (migrateRes2 < int(vmIdList.size())) continue;
@@ -557,6 +596,28 @@ private:
 			// serverUsedRatio = std::max(0.95, serverUsedRatio - 0.01);
 		}
 
+		auto printUsedRatio = [&]() {
+			if (curDay % 80 == 0) {
+				std::cerr << "\n\n" << curDay << ": " << std::endl;
+				std::cerr << std::fixed << std::setprecision(3);
+				for (auto &server: serversUsed) {
+					if (server.isDouble) continue;
+					// std::cerr << server << std::endl;
+					auto r0 = server.calUsedRatio(0);
+					auto r1 = server.calUsedRatio(1);
+					std::cerr << r0.first << "/" << r0.second << " | " << r1.first << "/" << r1.second << std::endl;
+				}
+				std::cerr << std::string(80, '-') << std::endl;
+				for (auto &server : serversUsed) {
+					if (!server.isDouble) continue;
+					// std::cerr << server << std::endl;
+					auto r0 = server.calUsedRatio();
+					std::cerr << r0.first << "/" << r0.second << std::endl;
+				}
+			}
+		};
+		// printUsedRatio();
+
 		// auto switchServer = [&](int idx) {
 		// 	auto &server = serversUsed[idx];
 		// 	int lim = server.isDouble ? 1 : 2;
@@ -583,17 +644,17 @@ private:
 		// 	return -1;
 		// };
 		
-		auto calEmptyServer1 = [&]() -> int {
-			int cnt = 0;
-			for (const auto &idx : serversIdUse[0][0][0][0]) {
-				cnt += serversUsed[idx].isEmpty(1);
-			}
-			return cnt;
-		};
+		// auto calEmptyServer1 = [&]() -> int {
+		// 	int cnt = 0;
+		// 	for (const auto &idx : serversIdUse[0][0][0][0]) {
+		// 		cnt += serversUsed[idx].isEmpty(1);
+		// 	}
+		// 	return cnt;
+		// };
 
-		auto calEmptyServer2 = [&]() -> int {
-			return serversIdUse[1][0][0][0].size();
-		};
+		// auto calEmptyServer2 = [&]() -> int {
+		// 	return serversIdUse[1][0][0][0].size();
+		// };
 
 		for (const auto &command : commands) {
 
@@ -695,6 +756,7 @@ private:
 		write();
 
 		auto printVSRatio = [&]() {
+			std::cerr << std::fixed << std::setprecision(3);
 			double vmRatio[2] = {
 				vmCpuSum[0] / (EPS + vmMemSum[0]), 
 				vmCpuSum[1] / (EPS + vmMemSum[1])
@@ -703,46 +765,50 @@ private:
 				serverCpuSum[0] / (EPS + serverMemSum[0]), 
 				serverCpuSum[1] / (EPS + serverMemSum[1])
 			};
-			std::cerr << vmRatio[0] << " " << serverRatio[0] << std::endl;
+			// std::cerr << vmRatio[0] << " " << serverRatio[0] << std::endl;
 			// std::cerr << vmRatio[1] << " " << serverRatio[1] << std::endl;
+			// std::cerr << vmCpuSum[0] << " " << serverCpuSum[0] << " " << 1.0 * vmCpuSum[0] / serverCpuSum[0] << " | ";
+			// std::cerr << vmMemSum[0] << " " << serverMemSum[0] << " " << 1.0 * vmMemSum[0] / serverMemSum[0] << std::endl;
+			std::cerr << vmCpuSum[1] << " " << serverCpuSum[1] << " " << 1.0 * vmCpuSum[1] / serverCpuSum[1] << " | ";
+			std::cerr << vmMemSum[1] << " " << serverMemSum[1] << " " << 1.0 * vmMemSum[1] / serverMemSum[1] << std::endl;
 		};
 		// printVSRatio();
 
-		auto printUsedRatio = [&]() {
-			if (curDay % 80 == 0) {
-				std::cerr << "\n\n" << curDay << ": " << std::endl;
-				std::cerr << std::fixed << std::setprecision(3);
-				for (auto &server: serversUsed) {
-					if (server.isDouble) continue;
-					// std::cerr << server << std::endl;
-					auto r0 = server.calUsedRatio(0);
-					auto r1 = server.calUsedRatio(1);
-					std::cerr << r0.first << "/" << r0.second << " | " << r1.first << "/" << r1.second << std::endl;
-				}
-				std::cerr << std::string(80, '-') << std::endl;
-				for (auto &server : serversUsed) {
-					if (!server.isDouble) continue;
-					// std::cerr << server << std::endl;
-					auto r0 = server.calUsedRatio();
-					std::cerr << r0.first << "/" << r0.second << std::endl;
-				}
-			}
-		};
-		// printUsedRatio();
+		// auto printUsedRatio = [&]() {
+		// 	if (curDay % 80 == 0) {
+		// 		std::cerr << "\n\n" << curDay << ": " << std::endl;
+		// 		std::cerr << std::fixed << std::setprecision(3);
+		// 		for (auto &server: serversUsed) {
+		// 			if (server.isDouble) continue;
+		// 			// std::cerr << server << std::endl;
+		// 			auto r0 = server.calUsedRatio(0);
+		// 			auto r1 = server.calUsedRatio(1);
+		// 			std::cerr << r0.first << "/" << r0.second << " | " << r1.first << "/" << r1.second << std::endl;
+		// 		}
+		// 		std::cerr << std::string(80, '-') << std::endl;
+		// 		for (auto &server : serversUsed) {
+		// 			if (!server.isDouble) continue;
+		// 			// std::cerr << server << std::endl;
+		// 			auto r0 = server.calUsedRatio();
+		// 			std::cerr << r0.first << "/" << r0.second << std::endl;
+		// 		}
+		// 	}
+		// };
+		// // printUsedRatio();
 
-		auto checkServersId = [&]() {
-			for (size_t i = 0; i < serversUsed.size(); ++i) {
-				const auto &server = serversUsed[i];
-				int lim = server.isDouble ? 1 : 2;
-				for (int nodeId = 0; nodeId < lim; ++nodeId) {
-					auto &serIdRes = serversIdRes[server.isDouble][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]];
-					assert(std::find(serIdRes.begin(), serIdRes.end(), i) != serIdRes.end());
-					auto &serIdUse = serversIdUse[server.isDouble][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]];
-					assert(std::find(serIdUse.begin(), serIdUse.end(), i) != serIdUse.end());
-				}
-			}
-		};
-		// checkServersId();
+		// auto checkServersId = [&]() {
+		// 	for (size_t i = 0; i < serversUsed.size(); ++i) {
+		// 		const auto &server = serversUsed[i];
+		// 		int lim = server.isDouble ? 1 : 2;
+		// 		for (int nodeId = 0; nodeId < lim; ++nodeId) {
+		// 			auto &serIdRes = serversIdRes[server.isDouble][nodeId][server.cpuCores[nodeId]][server.memorySize[nodeId]];
+		// 			assert(std::find(serIdRes.begin(), serIdRes.end(), i) != serIdRes.end());
+		// 			auto &serIdUse = serversIdUse[server.isDouble][nodeId][server.cpuUsed[nodeId]][server.memoryUsed[nodeId]];
+		// 			assert(std::find(serIdUse.begin(), serIdUse.end(), i) != serIdUse.end());
+		// 		}
+		// 	}
+		// };
+		// // checkServersId();
 
 	}
 
