@@ -374,6 +374,8 @@ private:
 		int memorySize = vmInfo.isDouble ? vmInfo.memorySize / 2 : vmInfo.memorySize;
 		std::pair<int, int> ret{-1, -1};
 
+		return searchServer(vmInfo, cpuCores, maxCpu, memorySize, maxMem);
+
 		static const int fragSize = 5;
 		ret = searchServer(vmInfo, cpuCores, cpuCores + fragSize, memorySize, memorySize + fragSize);
 		if (ret.first != -1) return ret;
@@ -494,7 +496,8 @@ private:
 		}
 		// std::cerr << curDay << ": " << serverUsedRatio << "   " << migrateRes1 << " " << migrateRes2 << " | ";
 
-		int curIndex = (lastMigrateIndex + 1) % vmList.size();
+		int vmSize = vmList.size();
+		int curIndex = (lastMigrateIndex + 1) % vmSize;
 		while (migrateRes1 > 0 && curIndex != lastMigrateIndex) {
 			int vmId = vmList[curIndex];
 			if (installId.count(vmId)) {
@@ -505,9 +508,9 @@ private:
 				}
 				migrateRes1 -= doMigrate(fromId, vmId);
 			}
-			curIndex = (curIndex + 1) % vmList.size();
+			curIndex = (curIndex + 1) % vmSize;
 		}
-		lastMigrateIndex = (curIndex - 1 + vmList.size()) % vmList.size();
+		lastMigrateIndex = (curIndex - 1 + vmSize) % vmSize;
 
 		for (int i = serversUsed.size() - 1; i >= 0 && migrateRes2 > 0; --i) {
 			const auto &server = serversUsed[i];
@@ -563,7 +566,10 @@ private:
 
 		double serverUsedRatio = 0.98;
 		double migrateRatio = 0.5;
-		int migrateLim = (vmResNum[0] + vmResNum[1]) * 3 / 100;
+		int migrateLim = (vmResNum[0] + vmResNum[1]) * 5 / 1000;
+		// if (curDay == dayNum / 2) {
+		// 	migrateLim = vmResNum[0] + vmResNum[1];
+		// }
 
 		while (true) {
 			int migrateLim1 = migrateLim * migrateRatio;

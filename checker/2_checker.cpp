@@ -181,7 +181,6 @@ std::unordered_map<int, int> vmIdToIndex;
 std::unordered_map<int, std::pair<int, int>> installId;
 std::map<int, std::set<int>> serverIndexToVmId;
 
-
 long long totalCost;
 int totalMigration;
 int totalVm;
@@ -214,6 +213,8 @@ long long calCost() {
 }
 
 std::pair<long long, int> judge(std::string inFile, std::string outFile) {
+
+    int migrateExNum = 1;
 
     std::ifstream in(inFile);
     std::ifstream out(outFile);
@@ -251,7 +252,10 @@ std::pair<long long, int> judge(std::string inFile, std::string outFile) {
         ss[1].pop_back();
         int migrateNum = std::stoi(ss[1]);
         int migrateLim = totalVm * 3 / 100;
-        assert(migrateNum >= 0 && migrateNum <= migrateLim);
+        if (migrateNum > migrateLim) {
+            --migrateExNum;
+        }
+        assert(migrateExNum >= 0);
         totalMigration += migrateNum;
         for (int i = 0; i < migrateNum; ++i) {
             out >> ss[0] >> ss[1];
