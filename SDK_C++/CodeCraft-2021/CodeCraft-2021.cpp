@@ -329,9 +329,9 @@ private:
 		// if (vmResNum[vmInfo.isDouble] < 10000) {
 		// 	aimRatio += 0.08 - std::rand() % 17 * 0.01;
 		// }
-		// if (curDay % 5 == 0) {
-		// 	aimRatio += 0.50 - std::rand() % 101 * 0.01;
-		// }
+		if (curDay % 5 == 0) {
+			aimRatio += 0.50 - std::rand() % 101 * 0.01;
+		}
 
 		double resCpu[2] = {
 			static_cast<double>(server.cpuCores[0]), 
